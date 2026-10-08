@@ -6,7 +6,7 @@ from threading import Event
 from unittest.mock import Mock, patch
 
 from nomnom.config import Config
-from nomnom.destinations import configure_destination_panel, picker_start, validate_destination
+from nomnom.destinations import configure_destination_panel, picker_start, validate_destination, configure_source_panel
 from nomnom.detection.simulated import SimulatedDetector
 from nomnom.engine.configured import run, RunResult
 from nomnom.engine import configured, transfer
@@ -31,6 +31,16 @@ class DestinationReportingTests(unittest.TestCase):
         path = self.source / name
         path.write_bytes(data)
         return path
+
+    def test_source_panel_is_explicit_and_does_not_inherit_destination(self):
+        panel = Mock()
+        configure_source_panel(panel, lambda p: p, self.source, self.home)
+        panel.setDirectoryURL_.assert_called_with(str(self.source))
+        panel.setCanCreateDirectories_.assert_called_with(False)
+        panel.setPrompt_.assert_called_with('Select source')
+        self.assertIn('not the destination', panel.setMessage_.call_args.args[0])
+        configure_source_panel(panel, lambda p: p, None, self.home)
+        panel.setDirectoryURL_.assert_called_with(str(self.home))
 
     def test_explicit_start_on_every_invocation_not_panel_history(self):
         self.out.mkdir()

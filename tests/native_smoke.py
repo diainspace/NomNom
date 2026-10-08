@@ -10,6 +10,7 @@ import rumps
 from PyObjCTools import AppHelper
 from nomnom.platforms import macos_app
 from nomnom.destinations import configure_destination_panel
+from nomnom.detection.simulated import SimulatedDetector
 from nomnom.engine.configured import RunResult
 from nomnom.reporting import summarize
 import AppKit
@@ -73,7 +74,47 @@ def exercise():
         with patch.object(rumps, 'notification', side_effect=RuntimeError('synthetic notification unavailable')), patch.object(rumps, 'alert') as alert:
             app.present_summary(summarize(result))
             alert.assert_called_once()
-        print('Native menu bar, window, mode/rule editing, preview, save/reload passed', flush=True)
+        # Regression: detection always opens setup before a Start prompt, even with saved settings.
+        source = Path(runtime.name) / 'pending-card'
+        source.mkdir()
+        card = SimulatedDetector(source, 'synthetic-pending').inserted()
+        with patch.object(rumps, 'alert') as alert:
+            app.offer(card, detected=True)
+            alert.assert_not_called()
+        assert app.pending_card == card and not app.busy
+        assert 'Save & review' in str(window.save_button.title())
+        assert str(source.resolve()) in str(window.source_label.stringValue())
+        # Destination selection saves and resumes this same pending source, but declining keeps it.
+        fake_panel.runModal.return_value = AppKit.NSModalResponseOK
+        fake_panel.URL.return_value = NSURL.fileURLWithPath_(str(chosen))
+        with patch.object(AppKit, 'NSOpenPanel', SimpleNamespace(openPanel=lambda: fake_panel)), patch.object(AppHelper, 'callAfter', side_effect=lambda callback: callback()), patch.object(rumps, 'notification'), patch.object(rumps, 'alert', return_value=0) as alert:
+            window.chooseDestination_(None)
+            review = [call for call in alert.call_args_list if call.args[0] == 'Review transfer']
+            assert len(review) == 1
+            assert 'Source (read only): ' + str(source.resolve()) in review[0].args[1]
+            assert 'Destination: ' + str(chosen.resolve()) in review[0].args[1]
+        assert app.pending_card == card and not app.busy
+        assert Path(app.config.destination) == chosen.resolve()
+        # Manual source selection must not poison the pending card by selecting the destination.
+        with patch.object(AppKit, 'NSOpenPanel', SimpleNamespace(openPanel=lambda: fake_panel)), patch.object(rumps, 'alert') as alert:
+            app.folder(None)
+            assert alert.call_args.args[0] == 'Choose the source, not the destination'
+        assert app.pending_card == card and app.source_root == card.root
+        # Source and destination dialogs have distinct titles, prompts and starting directories.
+        assert fake_panel.setTitle_.call_args.args[0] == 'Choose source folder'
+        assert Path(str(fake_panel.setDirectoryURL_.call_args.args[0].path())).resolve() == card.root
+        with patch.object(rumps, 'alert', return_value=1) as alert, patch.object(app.executor, 'submit') as submit:
+            app.review_pending()
+            submit.assert_called_once()
+            assert alert.call_args.args[0] == 'Review transfer'
+        assert app.busy and app.pending_card is None
+        app.busy = False
+        app.scanning = True  # Prevent this synthetic tick from dispatching diskutil.
+        app.offer(card, detected=True)
+        app.events.put(('cards', []))
+        app.tick(None)
+        assert app.pending_card is None and app.source_root is None
+        print('Native settings, pending-card startup, destination confirmation, source selection and transfer review regressions passed', flush=True)
     except Exception as error:
         errors.append(error)
         print('Native smoke failure: ' + repr(error), flush=True)

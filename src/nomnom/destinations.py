@@ -42,3 +42,16 @@ def configure_destination_panel(panel, url_factory, configured, sources=(), home
     panel.setAllowsMultipleSelection_(False)
     panel.setCanCreateDirectories_(True)
     panel.setDirectoryURL_(url_factory(str(picker_start(configured, sources, home))))
+
+
+def configure_source_panel(panel, url_factory, source=None, home=None):
+    """A source picker must never inherit the destination picker's directory."""
+    start = picker_start(str(source) if source else '', home=home)
+    panel.setCanChooseDirectories_(True)
+    panel.setCanChooseFiles_(False)
+    panel.setAllowsMultipleSelection_(False)
+    panel.setCanCreateDirectories_(False)
+    panel.setTitle_('Choose source folder')
+    panel.setMessage_('Select the SD card or folder containing files to import, not the destination.')
+    panel.setPrompt_('Select source')
+    panel.setDirectoryURL_(url_factory(str(start)))

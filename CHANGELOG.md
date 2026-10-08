@@ -1,5 +1,12 @@
 # Changelog
 
+## Startup and pending-card UX fix
+
+- Always confirm destination setup before presenting Start, even when settings were previously saved.
+- Keep detected cards pending through destination selection and Not now; selecting a destination saves settings and resumes transfer review.
+- Separate Import detected card from Choose source folder, label source/destination dialogs, reset source-picker history, and prevent accidental destination selection from replacing the source.
+- Clear pending detected cards when removed and add native regressions for the complete startup flow.
+
 ## v0.2 UX follow-up
 
 - Reset the native destination picker directory on every use, enable New Folder, and reject resolved destinations on the source card while allowing other drives.

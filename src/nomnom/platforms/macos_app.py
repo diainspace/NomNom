@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ..config import Config, Rule, state_directory
 from ..planning import preview
-from ..destinations import configure_destination_panel, validate_destination
+from ..destinations import configure_destination_panel, configure_source_panel, validate_destination
 from ..reporting import summarize, interrupted_summary
 from ..detection.simulated import SimulatedDetector
 from ..engine.configured import run, RunResult
@@ -23,6 +23,7 @@ def main():
         import objc
         import AppKit as A
         from Foundation import NSObject, NSURL
+        from PyObjCTools import AppHelper
     except ImportError as error:
         raise SystemExit('Install the macOS extras: python -m pip install -e ".[macos,exif]"') from error
 
@@ -47,6 +48,7 @@ def main():
             self.mode = self.popup(['Organize', 'Preserve', 'Backup'], 120, 557, 220)
             self.mode.setTarget_(self)
             self.mode.setAction_('modeChanged:')
+            self.source_label = self.label('No source selected', 355, 562, 305)
             self.label('Destination', 20, 522, 100)
             self.destination = self.text('', 120, 517, 440)
             self.button('Choose…', 570, 517, 90, 'chooseDestination:')
@@ -77,7 +79,7 @@ def main():
             self.preview_label = self.label('Pick a sample file to preview its destination.', 20, 67, 640, 46)
             self.button('Reload', 20, 20, 100, 'reload:')
             self.button('Preview', 130, 20, 100, 'refreshPreview:')
-            self.button('Save menu', 540, 20, 120, 'save:')
+            self.save_button = self.button('Save menu', 465, 20, 195, 'save:')
             self.populate(app.config)
             self.modeChanged_(None)
             return self
@@ -165,7 +167,7 @@ def main():
                           backup_name=str(self.backup.stringValue())).validate(True)
 
         @objc.python_method
-        def picker(self, directories, destination=False):
+        def picker(self, directories, destination=False, source=False):
             panel = A.NSOpenPanel.openPanel()
             panel.setCanChooseDirectories_(directories)
             panel.setCanChooseFiles_(not directories)
@@ -173,6 +175,11 @@ def main():
             if destination:
                 configure_destination_panel(panel, NSURL.fileURLWithPath_,
                                             str(self.destination.stringValue()), self.app.sources())
+                panel.setTitle_('Choose destination folder')
+                panel.setMessage_('Choose where NomNom will put the imported files.')
+                panel.setPrompt_('Use destination')
+            elif source:
+                configure_source_panel(panel, NSURL.fileURLWithPath_, self.app.source_root)
             if panel.runModal() == A.NSModalResponseOK:
                 return Path(str(panel.URL().path()))
             return None
@@ -197,6 +204,9 @@ def main():
                     selected = validate_destination(selected, self.app.sources())
                     self.destination.setStringValue_(str(selected))
                     self.refreshPreview_(sender)
+                    if self.app.pending_card is not None:
+                        # Explicit folder selection confirms destination; Start still authorizes copying.
+                        self.save_(sender)
                 except (ValueError, OSError, RuntimeError) as error:
                     rumps.alert('Destination unavailable', str(error))
 
@@ -249,7 +259,10 @@ def main():
                 validate_destination(config.destination, self.app.sources())
                 config.save(self.app.settings_path)
                 self.app.config = config
-                self.preview_label.setStringValue_('Menu saved. NomNom is ready for the next card.')
+                self.app.load_error = None
+                self.preview_label.setStringValue_('Settings saved. Ready to review the pending card.' if self.app.pending_card else 'Menu saved. NomNom is ready for the next card.')
+                if self.app.pending_card:
+                    AppHelper.callAfter(self.app.review_pending)
             except (ValueError, OSError, RuntimeError) as error:
                 rumps.alert('Could not save menu', str(error))
 
@@ -264,6 +277,8 @@ def main():
         @objc.python_method
         def show(self):
             A.NSApp.activateIgnoringOtherApps_(True)
+            self.source_label.setStringValue_('Source: ' + str(self.app.pending_card.root) if self.app.pending_card else 'No source selected')
+            self.save_button.setTitle_('Save & review transfer' if self.app.pending_card else 'Save menu')
             self.window.makeKeyAndOrderFront_(None)
 
     class MenuBarMuncher(rumps.App):
@@ -284,10 +299,12 @@ def main():
             except (ValueError, OSError) as error:
                 self.config = Config()
                 self.load_error = str(error)
-            self.menu = ['Configure NomNom…', 'Ingest folder…', 'Check cards now', 'Cancel transfer', 'Last transfer summary…', None, 'Ready for a nibble']
+            self.menu = ['Configure NomNom…', 'Import detected card…', 'Choose source folder…', 'Check cards now', 'Cancel transfer', 'Last transfer summary…', None, 'Ready for a nibble']
             self.menu['Cancel transfer'].set_callback(None)
             self.last_summary = None
             self.source_root = None
+            self.pending_card = None
+            self.pending_detected = False
             self.cancel_event = Event()
             self.executor = ThreadPoolExecutor(max_workers=1)
             self.events = queue.Queue()
@@ -308,13 +325,23 @@ def main():
                 rumps.alert('Settings need attention', self.load_error)
                 self.load_error = None
 
-        @rumps.clicked('Ingest folder…')
+        @rumps.clicked('Choose source folder…')
         def folder(self, sender):
             if self.settings is None:
                 self.settings = SettingsWindow.alloc().initWithApp_(self)
-            source = self.settings.picker(True)
+            if self.busy:
+                return
+            source = self.settings.picker(True, source=True)
             if source:
-                self.offer(SimulatedDetector(source, 'folder:' + str(source.resolve())).inserted())
+                card = SimulatedDetector(source, 'folder:' + str(source.resolve())).inserted()
+                if self.config.destination:
+                    try:
+                        validate_destination(self.config.destination, [card.root])
+                    except (ValueError, OSError, RuntimeError):
+                        rumps.alert('Choose the source, not the destination',
+                                    'The selected folder overlaps your destination. Select the SD card or folder containing files to import. Your destination has not changed.')
+                        return
+                self.offer(card)
 
         @rumps.clicked('Check cards now')
         def check(self, sender):
@@ -347,22 +374,49 @@ def main():
                 pass
             rumps.alert(summary.title, summary.text)
 
-        def offer(self, card):
+        @rumps.clicked('Import detected card…')
+        def import_detected(self, sender):
+            if self.busy:
+                return
+            if self.pending_card is not None:
+                self.configure(None)
+            else:
+                self.seen.clear()
+                self.tick(None)
+                self.menu['Ready for a nibble'].title = 'Checking for a source card…'
+
+        def offer(self, card, detected=False):
             if self.busy:
                 return
             self.source_root = card.root
-            if not self.config.destination or self.load_error:
-                self.configure(None)
+            self.pending_card = card
+            self.pending_detected = detected
+            self.menu['Ready for a nibble'].title = 'Confirm destination for pending card'
+            self.configure(None)
+
+        def review_pending(self):
+            card = self.pending_card
+            if self.busy or card is None:
+                return
+            if not card.root.is_dir():
+                rumps.alert('Source unavailable', 'The source was removed. Reinsert the card or choose a source folder.')
                 return
             try:
+                self.config.validate(True)
                 validate_destination(self.config.destination, [card.root])
             except (ValueError, OSError, RuntimeError) as error:
                 rumps.alert('Destination unavailable', str(error))
                 self.configure(None)
                 return
-            if rumps.alert('NomNom found a snack', '{}\n\n{} → {}\n\nStart a verified local transfer?'.format(card.root, self.config.mode.title(), self.config.destination), ok='Start', cancel='Not now') != 1:
+            message = 'Source (read only): {}\n\nDestination: {}\n\nMode: {}\n\nStart a verified local transfer?'.format(card.root, self.config.destination, self.config.mode.title())
+            if rumps.alert('Review transfer', message, ok='Start', cancel='Not now') != 1:
                 self.present_summary(summarize(RunResult(destination=self.config.destination, cancelled=True)))
+                # Keep this source pending so configuring a new destination can resume the review.
                 return
+            self.pending_card = None
+            self.pending_detected = False
+            if self.settings:
+                self.settings.window.orderOut_(None)
             self.busy = True
             self.cancel_event.clear()
             self.menu['Cancel transfer'].set_callback(self.cancel_transfer)
@@ -383,15 +437,25 @@ def main():
                     current = {(c.identity, str(c.root)) for c in value}
                     new = [c for c in value if (c.identity, str(c.root)) not in self.seen]
                     if not self.busy:
+                        if self.pending_card is not None:
+                            if self.pending_detected and (self.pending_card.identity, str(self.pending_card.root)) not in current:
+                                self.pending_card = None
+                                self.pending_detected = False
+                                self.source_root = None
+                                self.menu['Ready for a nibble'].title = 'Source card removed — waiting for a card'
+                                if self.settings:
+                                    self.settings.source_label.setStringValue_('Source card removed')
+                            else:
+                                continue
                         # Offer one card per tick so simultaneous insertions remain pending.
                         self.seen.intersection_update(current)
                         if new:
                             card = new[0]
                             self.seen.add((card.identity, str(card.root)))
-                            self.offer(card)
+                            self.offer(card, detected=True)
                 elif kind == 'scan-error':
                     self.scanning = False
-                    self.menu['Ready for a nibble'].title = 'Card detection unavailable — use Ingest folder'
+                    self.menu['Ready for a nibble'].title = 'Card detection unavailable — choose a source folder'
                 else:
                     self.busy = False
                     self.menu['Cancel transfer'].set_callback(None)
