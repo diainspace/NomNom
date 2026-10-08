@@ -152,6 +152,8 @@ def exercise():
             app.settings.window.orderOut_(None)
         app.executor.shutdown(wait=True)
         runtime.cleanup()
+        if os.environ.get('NOMNOM_SMOKE_REPORT'):
+            Path(os.environ['NOMNOM_SMOKE_REPORT']).write_text('FAILED: ' + repr(errors) if errors else 'PASSED')
         if errors:
             os._exit(1)
         AppHelper.stopEventLoop()

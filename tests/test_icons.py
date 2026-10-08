@@ -2,6 +2,8 @@
 import plistlib
 import struct
 import tempfile
+import sys
+import subprocess
 import unittest
 from pathlib import Path
 from tools.build_macos_app import build_bundle
@@ -18,6 +20,7 @@ class IconTests(unittest.TestCase):
         self.assertEqual(data[:4], b'icns')
         self.assertEqual(struct.unpack('!I', data[4:8])[0], len(data))
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'Native bundle building requires macOS')
     def test_local_bundle_has_app_icon_and_executable(self):
         with tempfile.TemporaryDirectory(prefix='nomnom-bundle-test-') as folder:
             bundle = build_bundle(Path(folder) / 'NomNom.app')
@@ -28,7 +31,8 @@ class IconTests(unittest.TestCase):
             self.assertTrue((bundle / 'Contents/Resources/NomNom.icns').is_file())
             launcher = bundle / 'Contents/MacOS/NomNom'
             self.assertTrue(launcher.stat().st_mode & 0o111)
-            self.assertIn('nomnom.platforms.macos_app', launcher.read_text())
+            self.assertIn(launcher.read_bytes()[:4], (b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xca\xfe\xba\xbe'))
+            subprocess.run(['/usr/bin/codesign', '--verify', '--strict', str(bundle)], check=True, capture_output=True)
 
 
 if __name__ == '__main__':

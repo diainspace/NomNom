@@ -67,7 +67,7 @@ Sources are opened for reading only. Files are never moved, deleted, rewritten, 
 
 Paths are validated against traversal, source/destination overlap, and symlinked target components. Runtime state cannot be inside the repository, source, or v0.2 destination. Settings and previews do not create destination folders. Backup accounts for unsupported entries rather than ignoring them.
 
-Use one ingestion process per state directory. Filesystem snapshots and coordination with other writers are not provided; changes after the final source check and hostile concurrent path replacement cannot be prevented. The destination filesystem currently must support hard links for atomic non-overwriting publication. Unsupported filesystems fail safely. Power-loss durability of directory entries is not guaranteed. Abrupt termination can leave `.nomnom-*` temporary files. Automatic stale-file cleanup, signed `.app` packaging, login-item installation, and physical hardware validation are deferred.
+Use one ingestion process per state directory. Filesystem snapshots and coordination with other writers are not provided; changes after the final source check and hostile concurrent path replacement cannot be prevented. The destination filesystem currently must support hard links for atomic non-overwriting publication. Unsupported filesystems fail safely. Power-loss durability of directory entries is not guaranteed. Abrupt termination can leave `.nomnom-*` temporary files. Automatic stale-file cleanup, self-contained Developer ID-signed `.app` packaging, login-item installation, and physical hardware validation are deferred.
 
 EXIF uses optional Pillow. JPEG/TIFF metadata support is practical; Canon CR2 and other RAW/HEIC formats may fall back to modified time. EXIF times without timezone data are treated as camera-local calendar times; filesystem dates use local time. Raspberry Pi support is optional and untested, with no Pi-specific dependencies or influence on macOS design.
 
@@ -89,7 +89,7 @@ The source-folder picker is titled **Choose source folder**, uses **Select sourc
 
 NomNom now includes a matching SD-card-with-a-bite mark: a monochrome template for the menu bar and an orange app icon. The running Cocoa application uses the app artwork. Public assets (`mark.svg`, PNGs, and `NomNom.icns`) are packaged with the Python application.
 
-A local, unsigned Finder launcher is already generated at `dist/NomNom.app`. Quit any running instance before launching it:
+A local, ad-hoc-signed native Finder launcher is already generated at `dist/NomNom.app`. Quit any running instance before launching it:
 
 ```sh
 open /Users/dianardozzi/Developer/NomNom/dist/NomNom.app
@@ -101,4 +101,12 @@ To regenerate the launcher after moving the checkout or virtual environment:
 .venv/bin/python tools/build_macos_app.py
 ```
 
-This launcher references the current checkout and interpreter; it is not a self-contained distributable and is not installed system-wide. Signing/notarization remain future work. To regenerate icon assets, run `.venv/bin/python tools/build_icons.py` with Pillow installed.
+This launcher references the current checkout and interpreter; it is not a self-contained distributable and is not installed system-wide. Developer ID signing/notarization remain future work. Building requires the macOS Command Line Tools (Clang) and the system codesign tool; no certificate or system-wide installation is used. To regenerate icon assets, run `.venv/bin/python tools/build_icons.py` with Pillow installed.
+
+The bundle executable is native Mach-O, rather than a shell script, so Launch Services can open it reliably. A build replaces and ad-hoc-signs only the generated project-local bundle. To run the same `open` startup path with card detection disabled, synthetic temporary settings, and transfer dispatch mocked:
+
+```sh
+.venv/bin/python tools/test_macos_launch.py
+```
+
+This check opens the native UI briefly and exits automatically. It must complete its smoke-result report; an `open` exit code alone is not treated as proof of application startup.

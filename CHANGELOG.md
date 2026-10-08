@@ -1,5 +1,11 @@
 # Changelog
 
+## Local app launch repair
+
+- Replace the shell-script bundle executable with a native Mach-O launcher and local ad-hoc signature to fix Launch Services error -10669.
+- Keep the virtual-environment interpreter path intact and clear inherited Python launcher hints.
+- Add an isolated `open`/Launch Services regression that disables hardware and ingestion, alongside executable-format and signature validation.
+
 ## Destination persistence and icons
 
 - Persist explicit destination selection immediately, including without a pending card; cancelling preserves saved settings.
