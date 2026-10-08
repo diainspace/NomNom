@@ -1,6 +1,6 @@
 from pathlib import Path
 
-PHOTO_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".heic", ".tif", ".tiff", ".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf"})
+PHOTO_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".heic", ".tif", ".tiff", ".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf", ".raw"})
 
 def discover(root: Path):
     for path in sorted(root.rglob("*")):
