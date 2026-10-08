@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2 UX follow-up
+
+- Reset the native destination picker directory on every use, enable New Folder, and reject resolved destinations on the source card while allowing other drives.
+- Add completion notifications and reopenable summaries with verified outcome counts and distinct success, partial failure, failure, and cancellation states.
+- Add safe between-file cancellation and preserve incomplete backup status.
+
 ## NomNom® v0.2: The Menu Bar Muncher
 
 - Reframe NomNom as general-purpose SD-card ingestion and file distribution, with macOS as the primary deployment target.

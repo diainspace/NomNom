@@ -2,13 +2,16 @@
 import copy
 import queue
 import sys
+from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from ..config import Config, Rule, state_directory
 from ..planning import preview
+from ..destinations import configure_destination_panel, validate_destination
+from ..reporting import summarize, interrupted_summary
 from ..detection.simulated import SimulatedDetector
-from ..engine.configured import run
+from ..engine.configured import run, RunResult
 from .macos_detection import MacOSDetector
 
 
@@ -19,7 +22,7 @@ def main():
         import rumps
         import objc
         import AppKit as A
-        from Foundation import NSObject
+        from Foundation import NSObject, NSURL
     except ImportError as error:
         raise SystemExit('Install the macOS extras: python -m pip install -e ".[macos,exif]"') from error
 
@@ -162,11 +165,14 @@ def main():
                           backup_name=str(self.backup.stringValue())).validate(True)
 
         @objc.python_method
-        def picker(self, directories):
+        def picker(self, directories, destination=False):
             panel = A.NSOpenPanel.openPanel()
             panel.setCanChooseDirectories_(directories)
             panel.setCanChooseFiles_(not directories)
             panel.setAllowsMultipleSelection_(False)
+            if destination:
+                configure_destination_panel(panel, NSURL.fileURLWithPath_,
+                                            str(self.destination.stringValue()), self.app.sources())
             if panel.runModal() == A.NSModalResponseOK:
                 return Path(str(panel.URL().path()))
             return None
@@ -185,10 +191,14 @@ def main():
             ][mode])
 
         def chooseDestination_(self, sender):
-            selected = self.picker(True)
+            selected = self.picker(True, destination=True)
             if selected:
-                self.destination.setStringValue_(str(selected))
-                self.refreshPreview_(sender)
+                try:
+                    selected = validate_destination(selected, self.app.sources())
+                    self.destination.setStringValue_(str(selected))
+                    self.refreshPreview_(sender)
+                except (ValueError, OSError, RuntimeError) as error:
+                    rumps.alert('Destination unavailable', str(error))
 
         def chooseSample_(self, sender):
             self.sample = self.picker(False)
@@ -236,10 +246,11 @@ def main():
         def save_(self, sender):
             try:
                 config = self.read()
+                validate_destination(config.destination, self.app.sources())
                 config.save(self.app.settings_path)
                 self.app.config = config
                 self.preview_label.setStringValue_('Menu saved. NomNom is ready for the next card.')
-            except (ValueError, OSError) as error:
+            except (ValueError, OSError, RuntimeError) as error:
                 rumps.alert('Could not save menu', str(error))
 
         def reload_(self, sender):
@@ -273,7 +284,11 @@ def main():
             except (ValueError, OSError) as error:
                 self.config = Config()
                 self.load_error = str(error)
-            self.menu = ['Configure NomNom…', 'Ingest folder…', 'Check cards now', None, 'Ready for a nibble']
+            self.menu = ['Configure NomNom…', 'Ingest folder…', 'Check cards now', 'Cancel transfer', 'Last transfer summary…', None, 'Ready for a nibble']
+            self.menu['Cancel transfer'].set_callback(None)
+            self.last_summary = None
+            self.source_root = None
+            self.cancel_event = Event()
             self.executor = ThreadPoolExecutor(max_workers=1)
             self.events = queue.Queue()
             self.detector = MacOSDetector()
@@ -306,22 +321,58 @@ def main():
             self.seen.clear()
             self.tick(None)
 
+        def sources(self):
+            return [self.source_root] if self.source_root is not None else []
+
+        @rumps.clicked('Cancel transfer')
+        def cancel_transfer(self, sender):
+            if self.busy:
+                self.cancel_event.set()
+                self.menu['Ready for a nibble'].title = 'Stopping after current file…'
+
+        @rumps.clicked('Last transfer summary…')
+        def last_transfer(self, sender):
+            if self.last_summary:
+                rumps.alert(self.last_summary.title, self.last_summary.text)
+            else:
+                rumps.alert('No transfers yet', 'A summary will appear after your first transfer.')
+
+        def present_summary(self, summary):
+            self.last_summary = summary
+            self.menu['Ready for a nibble'].title = summary.title
+            try:
+                rumps.notification('NomNom — ' + summary.title, '', summary.notification)
+            except Exception:
+                # Notification Center may be disabled or unavailable for a CLI-launched app.
+                pass
+            rumps.alert(summary.title, summary.text)
+
         def offer(self, card):
             if self.busy:
                 return
+            self.source_root = card.root
             if not self.config.destination or self.load_error:
                 self.configure(None)
                 return
+            try:
+                validate_destination(self.config.destination, [card.root])
+            except (ValueError, OSError, RuntimeError) as error:
+                rumps.alert('Destination unavailable', str(error))
+                self.configure(None)
+                return
             if rumps.alert('NomNom found a snack', '{}\n\n{} → {}\n\nStart a verified local transfer?'.format(card.root, self.config.mode.title(), self.config.destination), ok='Start', cancel='Not now') != 1:
+                self.present_summary(summarize(RunResult(destination=self.config.destination, cancelled=True)))
                 return
             self.busy = True
+            self.cancel_event.clear()
+            self.menu['Cancel transfer'].set_callback(self.cancel_transfer)
             self.menu['Ready for a nibble'].title = 'Munching…'
             config = copy.deepcopy(self.config)
             def work():
                 try:
-                    self.events.put(('result', run(card, config, state_directory())))
+                    self.events.put(('result', run(card, config, state_directory(), cancel=self.cancel_event)))
                 except Exception as error:
-                    self.events.put(('error', str(error)))
+                    self.events.put(('error', interrupted_summary(config.destination, error)))
             self.executor.submit(work)
 
         def tick(self, sender):
@@ -343,14 +394,8 @@ def main():
                     self.menu['Ready for a nibble'].title = 'Card detection unavailable — use Ingest folder'
                 else:
                     self.busy = False
-                    self.menu['Ready for a nibble'].title = 'Ready for a nibble'
-                    if kind == 'error':
-                        rumps.alert('NomNom stopped safely', value)
-                    else:
-                        message = '{} copied, {} already verified, {} skipped.\n{}'.format(value.copied, value.duplicates, value.skipped, value.destination)
-                        if value.failures:
-                            message += '\nIncomplete: ' + '\n'.join(path + ': ' + error for path, error in value.failures[:8])
-                        rumps.alert('Meal complete' if value.complete else 'Meal incomplete', message)
+                    self.menu['Cancel transfer'].set_callback(None)
+                    self.present_summary(value if kind == 'error' else summarize(value))
             if not self.scanning and not self.busy:
                 self.scanning = True
                 def scan():

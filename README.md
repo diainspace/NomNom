@@ -72,3 +72,13 @@ Use one ingestion process per state directory. Filesystem snapshots and coordina
 EXIF uses optional Pillow. JPEG/TIFF metadata support is practical; Canon CR2 and other RAW/HEIC formats may fall back to modified time. EXIF times without timezone data are treated as camera-local calendar times; filesystem dates use local time. Raspberry Pi support is optional and untested, with no Pi-specific dependencies or influence on macOS design.
 
 See [technical architecture](docs/architecture.md) and [release notes](CHANGELOG.md).
+
+## Destination picker and transfer summaries
+
+Every destination picker invocation starts at the configured destination if it is an existing valid directory outside the current source card; otherwise it starts at your home folder. It does not reuse the shared panel's navigation history. **New Folder** is enabled, including the native **Shift–Command–N** shortcut where macOS supports it. Creating a folder from the picker is an explicit user action; saving settings and previews still create no transfer destinations.
+
+Source-card destinations are rejected when selecting/saving settings and again before transferring. Symbolic links are resolved for this check, including links to nonexistent subfolders beneath the card. A source under `/Volumes/<card>` protects the entire card, not just its DCIM directory. Other external destination drives remain allowed.
+
+A completed attempt shows a Notification Center notification (subject to macOS notification settings), a native accessible summary, and a menu-bar status. **Last transfer summary…** reopens the latest summary during the current application session, even if Notification Center is unavailable. The summary reports copied, verified, already present, skipped, failed entries/issues, not processed, and destination. Verified includes both successfully copied files and matching existing files rehashed during the attempt; it is not an extra file count to add to copied. Failures can include filesystem entries and backup-wide errors, not just photographs.
+
+**Cancel transfer** stops before the next file, after the current file finishes verification. Successfully completed files remain intact and recorded; an interrupted backup stays incomplete. Declining **Start** is also reported as cancellation. If an unexpected exception prevents final counts from being recovered, the summary says counts are unavailable rather than inventing zero counts. Success, partial completion, failure, and cancellation have distinct titles. No system notification settings are changed by NomNom.

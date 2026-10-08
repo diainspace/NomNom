@@ -36,12 +36,14 @@ def verified_transfer(source, target, before, digest, preserve_times=False):
         stable(source, before, digest)
         if preserve_times:
             os.utime(temporary, ns=(before.st_atime_ns, before.st_mtime_ns))
+        copied = True
         try:
             os.link(temporary, target)
         except FileExistsError:
+            copied = False
             if target.is_symlink() or not target.is_file() or fingerprint(target) != digest:
                 raise RuntimeError('Destination collision; existing entry preserved')
         stable(source, before)
-        return True
+        return copied
     finally:
         temporary.unlink(missing_ok=True)

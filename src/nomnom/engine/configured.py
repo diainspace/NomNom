@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from ..planning import plan_file
+from ..destinations import validate_destination
 from .ingestion import fingerprint, signature, _inside
 from .ledger import Ledger
 from .transfer import stable, verified_transfer
@@ -22,6 +23,9 @@ class RunResult:
     session_id: str = ''
     destination: str = ''
     complete: bool = False
+    verified: int = 0
+    cancelled: bool = False
+    not_processed: int = 0
 
 
 def inventory(root):
@@ -79,12 +83,12 @@ def manifest(root, files, directories, failures):
     return json.dumps(output, sort_keys=True)
 
 
-def run(card, config, state, resume=None):
+def run(card, config, state, resume=None, cancel=None):
     config.validate(True)
     root = card.root.resolve(strict=True)
     if root != card.root or not root.is_dir():
         raise ValueError('Card root must be a resolved directory')
-    destination = Path(config.destination).expanduser().resolve()
+    destination = validate_destination(config.destination, [root])
     state = Path(state).expanduser().resolve()
     project = Path(__file__).resolve().parents[3]
     if _inside(state, project):
@@ -106,6 +110,10 @@ def run(card, config, state, resume=None):
                 result.skipped += 1
         except (ValueError, OSError) as error:
             result.failures.append((str(source), str(error)))
+    if cancel is not None and cancel.is_set():
+        result.cancelled = True
+        result.not_processed = len(planned)
+        return result
     ledger = Ledger(state)
     try:
         original_manifest = None
@@ -133,7 +141,11 @@ def run(card, config, state, resume=None):
                     checked_target(destination, directory.relative_to(root)).mkdir(parents=True, exist_ok=True)
                 except (ValueError, OSError) as error:
                     result.failures.append((str(directory), str(error)))
-        for item in planned:
+        for index, item in enumerate(planned):
+            if cancel is not None and cancel.is_set():
+                result.cancelled = True
+                result.not_processed = len(planned) - index
+                break
             source = item.source
             try:
                 before = source.stat()
@@ -145,16 +157,18 @@ def run(card, config, state, resume=None):
                     known = next((p for p in ledger.copies(digest) if p.parent == target.parent and p.is_file() and not p.is_symlink() and fingerprint(p) == digest), None)
                     if known is not None:
                         stable(source, before, digest)
-                        ledger.record_copy(card, source, digest, before.st_size, before.st_mtime_ns, known)
+                        result.verified += 1
                         result.duplicates += 1
+                        ledger.record_copy(card, source, digest, before.st_size, before.st_mtime_ns, known)
                         continue
                 copied = verified_transfer(source, target, before, digest, config.mode == 'backup')
                 stable(source, before)
-                ledger.record_copy(card, source, digest, before.st_size, before.st_mtime_ns, target)
+                result.verified += 1
                 if copied:
                     result.copied += 1
                 else:
                     result.duplicates += 1
+                ledger.record_copy(card, source, digest, before.st_size, before.st_mtime_ns, target)
             except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 result.failures.append((str(source), str(error)))
         if config.mode == 'backup':
@@ -173,8 +187,8 @@ def run(card, config, state, resume=None):
                 except (OSError, ValueError) as error:
                     result.failures.append((str(directory), 'Could not preserve directory timestamps: ' + str(error)))
             with ledger.connection:
-                ledger.connection.execute('UPDATE backup_sessions SET status=? WHERE id=?', ('complete' if not result.failures else 'incomplete', result.session_id))
-        result.complete = not result.failures
+                ledger.connection.execute('UPDATE backup_sessions SET status=? WHERE id=?', ('complete' if not result.failures and not result.cancelled else 'incomplete', result.session_id))
+        result.complete = not result.failures and not result.cancelled
         return result
     finally:
         ledger.close()
