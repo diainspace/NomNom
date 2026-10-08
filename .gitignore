@@ -5,3 +5,18 @@ __pycache__/
 build/
 dist/
 .DS_Store
+# Runtime, credentials, and temporary artifacts
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+.env
+.env.*
+*.pem
+*.key
+settings.json
+.nomnom-*
+.settings-*
+*.tmp
+.pytest_cache/

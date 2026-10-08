@@ -1,46 +1,74 @@
-# NomNom® v0.1
+# NomNom® v0.2: The Menu Bar Muncher
 
-Standalone, local SD-card photo ingestion for macOS development and eventual Raspberry Pi deployment. No external services, Dropbox integration, or dependency on codex-vite-sandbox.
+**NomNom® is a standalone, general-purpose SD-card ingestion and file distribution application.** macOS is its primary target: a native menu bar utility detects mounted removable cards and asks before starting a verified local transfer. The configuration and ingestion engines work independently of the UI. No Raspberry Pi hardware, external server, or cloud service is required.
 
-## Run without installation
+> NomNom® doesn't decide what's worth keeping. You decide what it eats and where it puts it.
 
-Python 3.9 or newer; no runtime or test dependencies.
+## Three ways to munch
+
+| Mode | What's on the menu? | Where does it go? |
+| --- | --- | --- |
+| **Organize** | Enabled extension rules; configurable treatment of other files | Route subfolders and optional date folders, in your chosen order |
+| **Preserve** | The same extension selection | Original relative file paths beneath your destination; automatic routing and date folders are ignored |
+| **Backup** | Every regular file, including hidden and extensionless files | A new, uniquely named backup folder with the complete directory hierarchy, including empty directories |
+
+Backup is a **verified file-level backup**, not a disk image. Symlinks, special files, unreadable entries, transfer failures, and source changes are reported. A backup with any such failure is incomplete. Existing backups are never silently overwritten or combined. Filenames and file/directory access and modification timestamps are preserved where supported; permissions, extended attributes, filesystem creation dates, and disk structures are not cloned.
+
+## Launch the macOS utility
+
+From this project directory, using Python 3.9 or newer:
 
 ```sh
-PYTHONPATH=src python3 -m nomnom.cli tests/fixtures/simulated_sd \
-  --card-id simulated-card-1 \
-  --destination "$HOME/Pictures/NomNom" \
-  --state-dir "$HOME/.local/state/nomnom"
-
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip setuptools
+.venv/bin/python -m pip install -e '.[macos,exif]'
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/nomnom-menubar
 ```
 
-The CLI requires an explicit destination. Its default state directory is `$XDG_STATE_HOME/nomnom` or `~/.local/state/nomnom`. Runtime state must be outside this repository. Source directories must not overlap destination or state directories. These commands create local runtime directories only when executed. A nonzero CLI exit status indicates failure; individual file failures appear in JSON output.
+A **NomNom** label appears in the menu bar. Choose **Configure NomNom…**, pick a mode and destination, then edit the file-type rows. Use **Eat** to enable a type, folder fields to route it in Organize, and arrows to change priority. The Canon Rebel preset starts with JPEG (`.jpg`, `.jpeg`) and RAW (`.cr2`) routes. Backup ignores extension rules.
 
-The included fixture is a generated one-pixel PNG, not a personal photograph. Tests also generate arbitrary bytes with photo extensions to exercise byte-preserving transfers.
+Choose a folder hierarchy and a plain-language date layout such as **Year / Month / Day**. The date field also accepts a custom format such as `%Y-%m-%d`. **Capture date, then modified date** uses supported EXIF when available, with a filesystem modification-date fallback. Pick **Sample file…**, then **Preview** to see the planned path and date source. Samples on `/Volumes/<card>` use that volume as their source root; other samples use their parent directory. **Save menu** saves settings; **Reload** retrieves them. No JSON editing is needed.
 
-## Architecture
+Insert a card and accept **Start** to authorize ingestion. Cards already mounted at launch are also offered. **Not now** leaves the source untouched; **Check cards now** offers mounted cards again. **Ingest folder…** provides a local simulation without physical hardware. The UI remains responsive during hashing/copying. Do not quit during an active transfer; interrupted backup sessions can be resumed through the CLI.
 
-- `detection/simulated.py`: `Detector` protocol, simulated insertion, and explicit stable card identity. Future platform adapters return the same `Card` object.
-- `engine/discovery.py`: recursive, extension-based discovery; skips symlinks.
-- `engine/organization.py`: configurable `Organizer` protocol. Default names are SHA-256 plus normalized extension in a flat destination directory.
-- `engine/ingestion.py`: orchestrates source fingerprinting, duplicate verification, copying, source stability checks, and final publication.
-- `engine/ledger.py`: SQLite records content fingerprints separately from card/path/content occurrences.
-- `cli.py`: local configuration and result reporting.
+Detection polls local `diskutil` every three seconds on a background worker. It recognizes mounted, external removable/ejectable physical partitions with a volume UUID. This can include USB removable media as well as SD cards. Every transfer requires confirmation; no data is imported merely because a volume is detected. Some readers do not expose removable flags or a UUID; use **Ingest folder…** if detection cannot identify the card.
 
-No source writes, moves, deletes, or metadata restoration are performed. Reading may update access time according to filesystem mount settings. SHA-256 identifies content across cards and filenames. Duplicates are recorded only after checking that the recorded destination still contains matching bytes. A missing destination is recopied; a corrupt existing destination is preserved and reported as a collision.
+Runtime settings and the SQLite ledger default to `~/.local/state/nomnom`, or `$XDG_STATE_HOME/nomnom`. Installation files and the virtual environment remain in the project. Optional packages are downloaded during installation; the application itself makes no network requests.
 
-A transfer writes to a temporary destination file, flushes and fsyncs it, verifies its size and hash, and rehashes the source. Device/inode, size, modification time, and change time are checked around transfer and before recording. A detected changing source is never recorded as successful. Publication uses an atomic hard link on the destination filesystem, preventing silent overwrites. The ledger transaction follows publication. Retrying after publication but before ledger commit verifies and adopts the existing matching file.
+## CLI and portable configuration
 
-Occurrences are keyed by card identity, relative source path, and digest. Repeated identical occurrences update the same row; new content at the same path preserves the earlier occurrence. Card IDs must be assigned consistently by the caller. The ledger currently keeps one verified destination per content fingerprint, across configured destinations.
+The original v0.1 invocation remains supported:
 
-## Prototype limitations
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m nomnom.cli tests/fixtures/simulated_sd \
+  --card-id simulated-card-1 --destination "$HOME/Pictures/NomNom"
+```
 
-- Physical card detection, UI, EXIF organization, video ingestion, and image decoding are not implemented. Discovery recognizes extensions rather than validating camera formats.
-- Tested locally on macOS with Python 3.9.6. Raspberry Pi and other Python versions have not been tested.
-- Source stability checks detect observed changes; no read-only application can guarantee a source stays unchanged after the final check without filesystem snapshots or coordination with writers.
-- Use one ingestion process per state directory. Concurrent hostile filesystem mutation and symlink replacement are outside this prototype's guarantees.
-- Destination filesystems must support hard links. Unsupported filesystems fail safely without recording success.
-- Abrupt process termination can leave `.nomnom-*` temporary files. Normal failures clean them up. Automatic stale-temp cleanup is deferred.
-- Power-loss durability of directory entries is not guaranteed: file bytes are fsynced, but destination directories are not. SQLite uses its default journaling. Every repeat import revalidates the recorded destination.
-- Copies preserve bytes, not original filesystem timestamps or permissions. No full historical event log, ledger migrations, parallel transfer queue, or cancellation API yet.
+For v0.2, use settings saved by the UI (or a portable copy of `presets/canon-rebel.json` with an absolute destination):
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m nomnom.cli /Volumes/MY_CARD \
+  --card-id MY_CARD_UUID --config "$HOME/.local/state/nomnom/settings.json" --preview
+```
+
+Remove `--preview` to authorize an actual transfer. Use `--destination` to override the configured root, and `--state-dir` to choose local runtime state outside the repository. Backup results include `session_id`; `--resume SESSION_ID` explicitly resumes that backup with unchanged card identity, source inventory, and configuration. An ordinary run always creates a new session, even with a custom backup name. JSON output includes `complete`; failures produce a nonzero exit status. Preview creates no destination or runtime directories.
+
+## Tests
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests -v
+```
+
+All fixtures are synthetic. The unchanged v0.1 suite remains in `tests/test_ingestion.py`; v0.2 cases are in `tests/test_v02.py`. The optional `tests/native_smoke.py` test runs the real menu bar event loop, settings window, preview, and save/reload against isolated temporary state with physical detection disabled. Physical reader behavior still requires hardware testing; automated detection tests use synthetic diskutil responses.
+
+## Safety and limits
+
+Sources are opened for reading only. Files are never moved, deleted, rewritten, or timestamp-restored on the source. Reading may update access times according to filesystem policy. Every completed copy is size/hash verified, with source metadata and content stability checks. Identical existing destination files are verified before reuse. Conflicting content is preserved and reported; there is no silent rename or overwrite.
+
+Paths are validated against traversal, source/destination overlap, and symlinked target components. Runtime state cannot be inside the repository, source, or v0.2 destination. Settings and previews do not create destination folders. Backup accounts for unsupported entries rather than ignoring them.
+
+Use one ingestion process per state directory. Filesystem snapshots and coordination with other writers are not provided; changes after the final source check and hostile concurrent path replacement cannot be prevented. The destination filesystem currently must support hard links for atomic non-overwriting publication. Unsupported filesystems fail safely. Power-loss durability of directory entries is not guaranteed. Abrupt termination can leave `.nomnom-*` temporary files. Automatic stale-file cleanup, signed `.app` packaging, login-item installation, and physical hardware validation are deferred.
+
+EXIF uses optional Pillow. JPEG/TIFF metadata support is practical; Canon CR2 and other RAW/HEIC formats may fall back to modified time. EXIF times without timezone data are treated as camera-local calendar times; filesystem dates use local time. Raspberry Pi support is optional and untested, with no Pi-specific dependencies or influence on macOS design.
+
+See [technical architecture](docs/architecture.md) and [release notes](CHANGELOG.md).

@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "mode": "organize",
+  "destination": "",
+  "rules": [
+    {
+      "extension": ".jpg",
+      "folder": "JPEG",
+      "enabled": true,
+      "condition": "extension"
+    },
+    {
+      "extension": ".jpeg",
+      "folder": "JPEG",
+      "enabled": true,
+      "condition": "extension"
+    },
+    {
+      "extension": ".cr2",
+      "folder": "RAW",
+      "enabled": true,
+      "condition": "extension"
+    }
+  ],
+  "unmatched": "skip",
+  "unmatched_folder": "Other",
+  "hierarchy": "date-extension",
+  "date_format": "%Y/%m/%d",
+  "date_sources": [
+    "exif",
+    "mtime"
+  ],
+  "backup_name": ""
+}
