@@ -6,6 +6,7 @@ from threading import Event
 from unittest.mock import Mock, patch
 
 from nomnom.config import Config
+from nomnom.settings import select_destination
 from nomnom.destinations import configure_destination_panel, picker_start, validate_destination, configure_source_panel
 from nomnom.detection.simulated import SimulatedDetector
 from nomnom.engine.configured import run, RunResult
@@ -31,6 +32,35 @@ class DestinationReportingTests(unittest.TestCase):
         path = self.source / name
         path.write_bytes(data)
         return path
+
+    def test_destination_selection_persists_without_pending_card(self):
+        self.out.mkdir()
+        updated = select_destination(self.config, self.out, self.state / 'settings.json', [self.source])
+        self.assertEqual(updated.destination, str(self.out))
+        self.assertEqual(Config.load(self.state / 'settings.json'), updated)
+        self.assertEqual(list(self.out.iterdir()), [])
+
+    def test_saved_selection_is_used_by_transfer_engine(self):
+        self.photo('synthetic.jpg')
+        new = self.root / 'new-destination'
+        new.mkdir()
+        updated = select_destination(self.config, new, self.state / 'settings.json', [self.source])
+        result = run(self.card, Config.load(self.state / 'settings.json'), self.state / 'ledger')
+        self.assertTrue(result.complete)
+        self.assertEqual(result.copied, 1)
+        self.assertEqual((new / 'synthetic.jpg').read_bytes(), b'synthetic')
+        self.assertFalse(self.out.exists())
+
+    def test_invalid_selection_preserves_saved_destination(self):
+        self.out.mkdir()
+        settings = self.state / 'settings.json'
+        self.config.save(settings)
+        before = settings.read_bytes()
+        alias = self.root / 'source-alias'
+        alias.symlink_to(self.source)
+        self.assertRaises(ValueError, select_destination, self.config, alias, settings, [self.source])
+        self.assertEqual(settings.read_bytes(), before)
+        self.assertEqual(self.config.destination, str(self.out))
 
     def test_source_panel_is_explicit_and_does_not_inherit_destination(self):
         panel = Mock()

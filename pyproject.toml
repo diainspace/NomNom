@@ -19,3 +19,6 @@ nomnom-menubar = "nomnom.platforms.macos_app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+nomnom = ["assets/*.png", "assets/*.icns", "assets/*.svg"]

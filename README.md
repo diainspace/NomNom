@@ -25,11 +25,11 @@ python3 -m venv .venv
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/nomnom-menubar
 ```
 
-A **NomNom** label appears in the menu bar. Choose **Configure NomNom…**, pick a mode and destination, then edit the file-type rows. If a source is pending, the window shows its path and a **Save & review transfer** button; otherwise use **Save menu** to save settings without starting a transfer. Use **Eat** to enable a type, folder fields to route it in Organize, and arrows to change priority. The Canon Rebel preset starts with JPEG (`.jpg`, `.jpeg`) and RAW (`.cr2`) routes. Backup ignores extension rules.
+A monochrome NomNom SD-card icon appears in the menu bar; macOS adapts it for light and dark appearances. Choose **Configure NomNom…**, pick a mode and destination, then edit the file-type rows. If a source is pending, the window shows its path and a **Save & review transfer** button; otherwise use **Save menu** to save settings without starting a transfer. Use **Eat** to enable a type, folder fields to route it in Organize, and arrows to change priority. The Canon Rebel preset starts with JPEG (`.jpg`, `.jpeg`) and RAW (`.cr2`) routes. Backup ignores extension rules.
 
 Choose a folder hierarchy and a plain-language date layout such as **Year / Month / Day**. The date field also accepts a custom format such as `%Y-%m-%d`. **Capture date, then modified date** uses supported EXIF when available, with a filesystem modification-date fallback. Pick **Sample file…**, then **Preview** to see the planned path and date source. Samples on `/Volumes/<card>` use that volume as their source root; other samples use their parent directory. **Save menu** saves settings; **Reload** retrieves them. No JSON editing is needed.
 
-When a card is detected, NomNom first opens configuration and keeps that card pending. Confirm a destination with **Choose…**, or keep the displayed destination with **Save & review transfer**. Choosing a destination for a pending card saves the current settings and opens a **Review transfer** dialog with explicitly labeled Source and Destination paths. Only **Start** authorizes ingestion. Cards already mounted at launch follow the same setup-first sequence. **Not now** leaves the source pending; **Import detected card…** reopens its setup without another source picker. **Choose source folder…** is a separate, explicitly labeled source-selection command for local simulation. **Check cards now** checks for mounted cards again. The UI remains responsive during hashing/copying. Do not quit during an active transfer; interrupted backup sessions can be resumed through the CLI.
+When a card is detected, NomNom first opens configuration and keeps that card pending. Confirm a destination with **Choose…**, or keep the displayed destination with **Save & review transfer**. Choosing a destination always saves that destination immediately, even without a pending card. With a pending card, it also saves the current valid settings and opens a **Review transfer** dialog with explicitly labeled Source and Destination paths. Only **Start** authorizes ingestion. Cards already mounted at launch follow the same setup-first sequence. **Not now** leaves the source pending; **Import detected card…** resumes review using the saved destination without another source picker. A manual **Choose source folder…** selection also proceeds directly to review when a valid destination has already been saved. **Choose source folder…** is a separate, explicitly labeled source-selection command for local simulation. **Check cards now** checks for mounted cards again. The UI remains responsive during hashing/copying. Do not quit during an active transfer; interrupted backup sessions can be resumed through the CLI.
 
 Detection polls local `diskutil` every three seconds on a background worker. It recognizes mounted, external removable/ejectable physical partitions with a volume UUID. This can include USB removable media as well as SD cards. Every transfer requires confirmation; no data is imported merely because a volume is detected. Some readers do not expose removable flags or a UUID; use **Choose source folder…** if detection cannot identify the card.
 
@@ -84,3 +84,21 @@ A completed attempt shows a Notification Center notification (subject to macOS n
 **Cancel transfer** stops before the next file, after the current file finishes verification. Successfully completed files remain intact and recorded; an interrupted backup stays incomplete. Declining **Start** is also reported as cancellation. If an unexpected exception prevents final counts from being recovered, the summary says counts are unavailable rather than inventing zero counts. Success, partial completion, failure, and cancellation have distinct titles. No system notification settings are changed by NomNom.
 
 The source-folder picker is titled **Choose source folder**, uses **Select source** as its action, and explicitly says to choose files to import rather than the destination. Its starting directory is independently reset to the known source or Home, and New Folder is disabled there. Accidentally selecting your destination as the source is rejected without replacing the pending card or changing your destination. Removing a pending detected card clears it; reinsert it to set up a new transfer.
+
+## Menu bar and app icons
+
+NomNom now includes a matching SD-card-with-a-bite mark: a monochrome template for the menu bar and an orange app icon. The running Cocoa application uses the app artwork. Public assets (`mark.svg`, PNGs, and `NomNom.icns`) are packaged with the Python application.
+
+A local, unsigned Finder launcher is already generated at `dist/NomNom.app`. Quit any running instance before launching it:
+
+```sh
+open /Users/dianardozzi/Developer/NomNom/dist/NomNom.app
+```
+
+To regenerate the launcher after moving the checkout or virtual environment:
+
+```sh
+.venv/bin/python tools/build_macos_app.py
+```
+
+This launcher references the current checkout and interpreter; it is not a self-contained distributable and is not installed system-wide. Signing/notarization remain future work. To regenerate icon assets, run `.venv/bin/python tools/build_icons.py` with Pillow installed.

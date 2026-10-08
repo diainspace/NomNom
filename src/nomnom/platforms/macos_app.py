@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ..config import Config, Rule, state_directory
 from ..planning import preview
+from ..settings import select_destination
 from ..destinations import configure_destination_panel, configure_source_panel, validate_destination
 from ..reporting import summarize, interrupted_summary
 from ..detection.simulated import SimulatedDetector
@@ -201,12 +202,16 @@ def main():
             selected = self.picker(True, destination=True)
             if selected:
                 try:
-                    selected = validate_destination(selected, self.app.sources())
-                    self.destination.setStringValue_(str(selected))
+                    # Persist destination independently of any unrelated unsaved rule edits.
+                    self.app.config = select_destination(self.app.config, selected,
+                                                         self.app.settings_path, self.app.sources())
+                    self.destination.setStringValue_(self.app.config.destination)
                     self.refreshPreview_(sender)
                     if self.app.pending_card is not None:
                         # Explicit folder selection confirms destination; Start still authorizes copying.
                         self.save_(sender)
+                    else:
+                        self.preview_label.setStringValue_('Destination saved. Choose a source or insert a card to import.')
                 except (ValueError, OSError, RuntimeError) as error:
                     rumps.alert('Destination unavailable', str(error))
 
@@ -289,7 +294,8 @@ def main():
             support = runtime.application_support
             runtime.application_support = lambda name: str(state_directory())
             try:
-                super().__init__('NomNom', title='NomNom', quit_button='Quit NomNom')
+                assets = Path(__file__).resolve().parents[1] / 'assets'
+                super().__init__('NomNom', icon=str(assets / 'menu-template.png'), template=True, quit_button='Quit NomNom')
             finally:
                 runtime.application_support = support
             self.settings_path = state_directory() / 'settings.json'
@@ -379,7 +385,7 @@ def main():
             if self.busy:
                 return
             if self.pending_card is not None:
-                self.configure(None)
+                self.review_pending()
             else:
                 self.seen.clear()
                 self.tick(None)
@@ -392,7 +398,10 @@ def main():
             self.pending_card = card
             self.pending_detected = detected
             self.menu['Ready for a nibble'].title = 'Confirm destination for pending card'
-            self.configure(None)
+            if detected or not self.config.destination or self.load_error:
+                self.configure(None)
+            else:
+                self.review_pending()
 
         def review_pending(self):
             card = self.pending_card
@@ -469,6 +478,8 @@ def main():
                         self.events.put(('scan-error', str(error)))
                 self.executor.submit(scan)
 
+    image = A.NSImage.alloc().initWithContentsOfFile_(str(Path(__file__).resolve().parents[1] / 'assets' / 'NomNom.png'))
+    A.NSApplication.sharedApplication().setApplicationIconImage_(image)
     MenuBarMuncher().run()
 
 

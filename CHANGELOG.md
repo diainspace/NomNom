@@ -1,5 +1,12 @@
 # Changelog
 
+## Destination persistence and icons
+
+- Persist explicit destination selection immediately, including without a pending card; cancelling preserves saved settings.
+- Reuse the saved destination in automatic review and manual ingest, without reopening setup unnecessarily.
+- Add matching menu bar/app icon assets and a project-local unsigned Finder launcher builder.
+- Extend synthetic and native regressions for immediate persistence, cancelled selection, and automatic/manual destination reuse.
+
 ## Startup and pending-card UX fix
 
 - Always confirm destination setup before presenting Start, even when settings were previously saved.

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import rumps
 from PyObjCTools import AppHelper
 from nomnom.platforms import macos_app
+from nomnom.config import Config
 from nomnom.destinations import configure_destination_panel
 from nomnom.detection.simulated import SimulatedDetector
 from nomnom.engine.configured import RunResult
@@ -47,7 +48,8 @@ def exercise():
         assert window.read().mode == 'backup'
         assert len(window.rules()) == 4
         assert not destination.exists()
-        assert app.title == 'NomNom'
+        assert app._icon_nsimage is not None
+        assert AppKit.NSApplication.sharedApplication().applicationIconImage().isValid()
         # Inspect actual native picker configuration without opening or navigating a card.
         chosen = Path(runtime.name) / 'chosen'
         chosen.mkdir()
@@ -74,6 +76,25 @@ def exercise():
         with patch.object(rumps, 'notification', side_effect=RuntimeError('synthetic notification unavailable')), patch.object(rumps, 'alert') as alert:
             app.present_summary(summarize(result))
             alert.assert_called_once()
+        # Selecting a destination without a pending card persists immediately, too.
+        new_destination = Path(runtime.name) / 'new-local-destination'
+        new_destination.mkdir()
+        fake_panel.runModal.return_value = AppKit.NSModalResponseOK
+        fake_panel.URL.return_value = NSURL.fileURLWithPath_(str(new_destination))
+        app.source_root = None
+        with patch.object(AppKit, 'NSOpenPanel', SimpleNamespace(openPanel=lambda: fake_panel)), patch.object(rumps, 'alert') as alert:
+            window.chooseDestination_(None)
+            alert.assert_not_called()
+        assert Path(app.config.destination) == new_destination.resolve()
+        assert Config.load(app.settings_path).destination == str(new_destination.resolve())
+        # Cancelling selection leaves memory, disk, source and transfer dispatch untouched.
+        saved_settings = app.settings_path.read_bytes()
+        fake_panel.runModal.return_value = AppKit.NSModalResponseCancel
+        with patch.object(AppKit, 'NSOpenPanel', SimpleNamespace(openPanel=lambda: fake_panel)), patch.object(app.executor, 'submit') as submit:
+            window.chooseDestination_(None)
+            submit.assert_not_called()
+        assert app.settings_path.read_bytes() == saved_settings and not app.busy
+        assert Path(app.config.destination) == new_destination.resolve()
         # Regression: detection always opens setup before a Start prompt, even with saved settings.
         source = Path(runtime.name) / 'pending-card'
         source.mkdir()
@@ -107,6 +128,13 @@ def exercise():
             app.review_pending()
             submit.assert_called_once()
             assert alert.call_args.args[0] == 'Review transfer'
+        # Manual ingest reuses the confirmed destination directly, without another picker/setup.
+        app.busy = False
+        with patch.object(rumps, 'alert', return_value=1) as alert, patch.object(app.executor, 'submit') as submit:
+            app.offer(card, detected=False)
+            submit.assert_called_once()
+            assert alert.call_args.args[0] == 'Review transfer'
+            assert 'Destination: ' + str(chosen.resolve()) in alert.call_args.args[1]
         assert app.busy and app.pending_card is None
         app.busy = False
         app.scanning = True  # Prevent this synthetic tick from dispatching diskutil.
@@ -114,7 +142,7 @@ def exercise():
         app.events.put(('cards', []))
         app.tick(None)
         assert app.pending_card is None and app.source_root is None
-        print('Native settings, pending-card startup, destination confirmation, source selection and transfer review regressions passed', flush=True)
+        print('Native icons, immediate destination persistence, cancellation, startup and automatic/manual transfer regressions passed', flush=True)
     except Exception as error:
         errors.append(error)
         print('Native smoke failure: ' + repr(error), flush=True)
