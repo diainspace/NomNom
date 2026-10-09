@@ -12,8 +12,12 @@ def stable(source, before, digest=None):
         raise RuntimeError('Source changed during transfer')
 
 
-def verified_transfer(source, target, before, digest, preserve_times=False):
+def verified_transfer(source, target, before, digest, preserve_times=False, progress=None):
+    def phase(name, delta=0):
+        if progress:
+            progress(name, delta)
     if target.exists() or target.is_symlink():
+        phase('Verifying existing file')
         if target.is_symlink() or not target.is_file() or fingerprint(target) != digest:
             raise RuntimeError('Destination collision; existing entry preserved')
         stable(source, before, digest)
@@ -25,14 +29,18 @@ def verified_transfer(source, target, before, digest, preserve_times=False):
         with os.fdopen(fd, 'wb') as output, source.open('rb') as stream:
             if signature(os.fstat(stream.fileno())) != signature(before):
                 raise RuntimeError('Source changed before copying')
+            phase('Copying')
             for block in iter(lambda: stream.read(BLOCK_SIZE), b''):
                 output.write(block)
+                phase('Copying', len(block))
             output.flush()
             os.fsync(output.fileno())
             if signature(os.fstat(stream.fileno())) != signature(before):
                 raise RuntimeError('Source changed while copying')
+        phase('Verifying copied file')
         if temporary.stat().st_size != before.st_size or fingerprint(temporary) != digest:
             raise RuntimeError('Destination verification failed')
+        phase('Verifying source stability')
         stable(source, before, digest)
         if preserve_times:
             os.utime(temporary, ns=(before.st_atime_ns, before.st_mtime_ns))

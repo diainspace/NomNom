@@ -25,6 +25,8 @@ errors = []
 def exercise():
     app = getattr(rumps.App, '*app_instance')
     app.timer.stop()
+    app.ui_timer.stop()
+    app.ensure_access()
     try:
         app.configure(None)
         window = app.settings
@@ -70,12 +72,15 @@ def exercise():
         with patch.object(rumps, 'notification') as notification, patch.object(rumps, 'alert') as alert:
             app.present_summary(summarize(result))
             notification.assert_called_once()
-            assert 'Verified: 3' in alert.call_args[0][1]
+            assert 'Verified: 3' in str(app.status.details.string())
+            app.status.window.performClose_(None)
             app.last_transfer(None)
-            assert alert.call_count == 2
+            assert app.status.window.isVisible()
+            alert.assert_not_called()
         with patch.object(rumps, 'notification', side_effect=RuntimeError('synthetic notification unavailable')), patch.object(rumps, 'alert') as alert:
             app.present_summary(summarize(result))
-            alert.assert_called_once()
+            assert app.status.window.isVisible()
+            alert.assert_not_called()
         # Selecting a destination without a pending card persists immediately, too.
         new_destination = Path(runtime.name) / 'new-local-destination'
         new_destination.mkdir()
@@ -148,6 +153,9 @@ def exercise():
         print('Native smoke failure: ' + repr(error), flush=True)
     def finish():
         app.timer.stop()
+        app.ui_timer.stop()
+        if app.status:
+            app.status.window.orderOut_(None)
         if app.settings:
             app.settings.window.orderOut_(None)
         app.executor.shutdown(wait=True)

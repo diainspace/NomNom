@@ -25,7 +25,7 @@ python3 -m venv .venv
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/nomnom-menubar
 ```
 
-A monochrome NomNom SD-card icon appears in the menu bar; macOS adapts it for light and dark appearances. Choose **Configure NomNom…**, pick a mode and destination, then edit the file-type rows. If a source is pending, the window shows its path and a **Save & review transfer** button; otherwise use **Save menu** to save settings without starting a transfer. Use **Eat** to enable a type, folder fields to route it in Organize, and arrows to change priority. The Canon Rebel preset starts with JPEG (`.jpg`, `.jpeg`) and RAW (`.cr2`) routes. Backup ignores extension rules.
+A monochrome NomNom dumpling-box icon and a **NomNom** label appear in the menu bar; macOS adapts it for light and dark appearances. Choose **Configure NomNom…**, pick a mode and destination, then edit the file-type rows. If a source is pending, the window shows its path and a **Save & review transfer** button; otherwise use **Save menu** to save settings without starting a transfer. Use **Eat** to enable a type, folder fields to route it in Organize, and arrows to change priority. The Canon Rebel preset starts with JPEG (`.jpg`, `.jpeg`) and RAW (`.cr2`) routes. Backup ignores extension rules.
 
 Choose a folder hierarchy and a plain-language date layout such as **Year / Month / Day**. The date field also accepts a custom format such as `%Y-%m-%d`. **Capture date, then modified date** uses supported EXIF when available, with a filesystem modification-date fallback. Pick **Sample file…**, then **Preview** to see the planned path and date source. Samples on `/Volumes/<card>` use that volume as their source root; other samples use their parent directory. **Save menu** saves settings; **Reload** retrieves them. No JSON editing is needed.
 
@@ -87,7 +87,7 @@ The source-folder picker is titled **Choose source folder**, uses **Select sourc
 
 ## Menu bar and app icons
 
-NomNom now includes a matching SD-card-with-a-bite mark: a monochrome template for the menu bar and an orange app icon. The running Cocoa application uses the app artwork. Public assets (`mark.svg`, PNGs, and `NomNom.icns`) are packaged with the Python application.
+NomNom now includes a matching dumpling-box artwork: a monochrome template for the menu bar and a warm-colored app icon. The running Cocoa application uses the app artwork. Approved PNG artwork and `NomNom.icns` are packaged with the Python application.
 
 A local, ad-hoc-signed native Finder launcher is already generated at `dist/NomNom.app`. Quit any running instance before launching it:
 
@@ -110,3 +110,11 @@ The bundle executable is native Mach-O, rather than a shell script, so Launch Se
 ```
 
 This check opens the native UI briefly and exits automatically. It must complete its smoke-result report; an `open` exit code alone is not treated as proof of application startup.
+
+## Live transfer status
+
+Starting a transfer immediately opens **Transfer Status**, including preparation and scanning before copying. It shows the current phase, processed files and the total when known, verified files, failures, and bytes actually written. Unknown totals remain unknown; no estimated percentages are displayed. Byte counts exclude fingerprint reads and duplicate files but can include bytes from failed copy attempts.
+
+Choose **Show Transfer Status…** from the persistent NomNom menu to reopen the window. Closing the window does not quit NomNom or cancel a transfer. The app intentionally has no Dock icon. Completion, cancellation, and partial failure leave the actual summary available in the status window and **Last transfer summary…**. Cancel finishes the current file before stopping.
+
+The native launch test also performs an isolated synthetic transfer, checks immediate scanning/copy feedback, invokes the real Cocoa menu to reopen a closed window, and checks completion and partial-failure summaries. It disables physical-card detection and does not access personal files.

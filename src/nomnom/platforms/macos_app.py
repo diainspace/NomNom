@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ..config import Config, Rule, state_directory
 from ..planning import preview
+from ..progress import Progress
 from ..settings import select_destination
 from ..destinations import configure_destination_panel, configure_source_panel, validate_destination
 from ..reporting import summarize, interrupted_summary
@@ -286,6 +287,80 @@ def main():
             self.save_button.setTitle_('Save & review transfer' if self.app.pending_card else 'Save menu')
             self.window.makeKeyAndOrderFront_(None)
 
+    class TransferWindow(NSObject):
+        def initWithApp_(self, app):
+            self = objc.super(TransferWindow, self).init()
+            if self is None:
+                return None
+            self.app = app
+            self.window = A.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                A.NSMakeRect(0, 0, 650, 420), A.NSWindowStyleMaskTitled | A.NSWindowStyleMaskClosable | A.NSWindowStyleMaskMiniaturizable | A.NSWindowStyleMaskResizable,
+                A.NSBackingStoreBuffered, False)
+            self.window.setTitle_('NomNom — Transfer Status')
+            self.window.setReleasedWhenClosed_(False)
+            self.window.setDelegate_(self)
+            self.window.center()
+            view = self.window.contentView()
+            self.phase = A.NSTextField.alloc().initWithFrame_(A.NSMakeRect(65, 365, 560, 30))
+            self.phase.setEditable_(False)
+            self.phase.setBezeled_(False)
+            self.phase.setDrawsBackground_(False)
+            self.phase.setFont_(A.NSFont.boldSystemFontOfSize_(18))
+            self.phase.setStringValue_('Ready for a transfer')
+            view.addSubview_(self.phase)
+            self.spinner = A.NSProgressIndicator.alloc().initWithFrame_(A.NSMakeRect(20, 366, 28, 28))
+            self.spinner.setStyle_(A.NSProgressIndicatorStyleSpinning)
+            self.spinner.setIndeterminate_(True)
+            self.spinner.setDisplayedWhenStopped_(False)
+            view.addSubview_(self.spinner)
+            scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(20, 65, 610, 285))
+            scroll.setHasVerticalScroller_(True)
+            scroll.setAutoresizingMask_(A.NSViewWidthSizable | A.NSViewHeightSizable)
+            self.details = A.NSTextView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 610, 285))
+            self.details.setEditable_(False)
+            self.details.setSelectable_(True)
+            self.details.setFont_(A.NSFont.userFixedPitchFontOfSize_(13))
+            self.details.setString_('Start a transfer from the NomNom menu. Closing this window keeps NomNom running.')
+            scroll.setDocumentView_(self.details)
+            view.addSubview_(scroll)
+            self.cancel = A.NSButton.alloc().initWithFrame_(A.NSMakeRect(455, 18, 175, 30))
+            self.cancel.setTitle_('Cancel transfer')
+            self.cancel.setBezelStyle_(A.NSBezelStyleRounded)
+            self.cancel.setTarget_(self)
+            self.cancel.setAction_('cancelTransfer:')
+            self.cancel.setEnabled_(False)
+            view.addSubview_(self.cancel)
+            return self
+
+        def windowShouldClose_(self, sender):
+            # Closing only hides this retained window. The engine remains running.
+            return True
+
+        def cancelTransfer_(self, sender):
+            self.app.cancel_transfer(sender)
+
+        @objc.python_method
+        def update(self, progress):
+            self.phase.setStringValue_(progress.phase)
+            self.details.setString_(progress.text() + '\n\nSource (read only): ' + str(self.app.source_root or '—') + '\nDestination: ' + self.app.transfer_destination)
+            self.cancel.setEnabled_(self.app.busy)
+            if self.app.busy:
+                self.spinner.startAnimation_(None)
+            else:
+                self.spinner.stopAnimation_(None)
+
+        @objc.python_method
+        def finish(self, summary):
+            self.phase.setStringValue_(summary.title)
+            self.details.setString_(summary.text)
+            self.cancel.setEnabled_(False)
+            self.spinner.stopAnimation_(None)
+
+        @objc.python_method
+        def show(self):
+            A.NSApp.activateIgnoringOtherApps_(True)
+            self.window.makeKeyAndOrderFront_(None)
+
     class MenuBarMuncher(rumps.App):
         def __init__(self):
             # rumps otherwise creates ~/Library/Application Support/NomNom.
@@ -295,7 +370,7 @@ def main():
             runtime.application_support = lambda name: str(state_directory())
             try:
                 assets = Path(__file__).resolve().parents[1] / 'assets'
-                super().__init__('NomNom', icon=str(assets / 'menu-template.png'), template=True, quit_button='Quit NomNom')
+                super().__init__('NomNom', title='NomNom', icon=str(assets / 'menu-template.png'), template=True, quit_button='Quit NomNom')
             finally:
                 runtime.application_support = support
             self.settings_path = state_directory() / 'settings.json'
@@ -305,9 +380,13 @@ def main():
             except (ValueError, OSError) as error:
                 self.config = Config()
                 self.load_error = str(error)
-            self.menu = ['Configure NomNom…', 'Import detected card…', 'Choose source folder…', 'Check cards now', 'Cancel transfer', 'Last transfer summary…', None, 'Ready for a nibble']
+            self.menu = ['Show Transfer Status…', 'Configure NomNom…', 'Import detected card…', 'Choose source folder…', 'Check cards now', 'Cancel transfer', 'Last transfer summary…', None, 'Ready for a nibble']
             self.menu['Cancel transfer'].set_callback(None)
             self.last_summary = None
+            self.status = None
+            self.latest_progress = Progress()
+            self.transfer_destination = ''
+            self._controller = self
             self.source_root = None
             self.pending_card = None
             self.pending_detected = False
@@ -321,6 +400,25 @@ def main():
             self.settings = None
             self.timer = rumps.Timer(self.tick, 3)
             self.timer.start()
+            self.ui_timer = rumps.Timer(self.process_events, 0.1)
+            self.ui_timer.start()
+
+        def ensure_access(self):
+            # Use a strong item reference plus a readable title, even if image rendering fails.
+            self._status_item = self._nsapp.nsstatusitem
+            self._status_item.setVisible_(True)
+            self._status_item.setBehavior_(0)
+            button = self._status_item.button()
+            button.setTitle_('NomNom')
+            button.setToolTip_('NomNom — open the menu for Transfer Status')
+            button.setAccessibilityLabel_('NomNom menu')
+            A.NSApp.setActivationPolicy_(A.NSApplicationActivationPolicyAccessory)
+
+        @rumps.clicked('Show Transfer Status…')
+        def show_status(self, sender=None):
+            if self.status is None:
+                self.status = TransferWindow.alloc().initWithApp_(self)
+            self.status.show()
 
         @rumps.clicked('Configure NomNom…')
         def configure(self, sender):
@@ -362,11 +460,18 @@ def main():
             if self.busy:
                 self.cancel_event.set()
                 self.menu['Ready for a nibble'].title = 'Stopping after current file…'
+                self.latest_progress = Progress('Cancellation requested — finishing current file', self.latest_progress.files_done, self.latest_progress.files_total, self.latest_progress.bytes_transferred, self.latest_progress.current_file, self.latest_progress.verified, self.latest_progress.failures)
+                self.show_status(None)
+                self.status.update(self.latest_progress)
 
         @rumps.clicked('Last transfer summary…')
         def last_transfer(self, sender):
-            if self.last_summary:
-                rumps.alert(self.last_summary.title, self.last_summary.text)
+            if self.busy:
+                self.show_status(None)
+                self.status.update(self.latest_progress)
+            elif self.last_summary:
+                self.show_status(None)
+                self.status.finish(self.last_summary)
             else:
                 rumps.alert('No transfers yet', 'A summary will appear after your first transfer.')
 
@@ -378,7 +483,8 @@ def main():
             except Exception:
                 # Notification Center may be disabled or unavailable for a CLI-launched app.
                 pass
-            rumps.alert(summary.title, summary.text)
+            self.show_status(None)
+            self.status.finish(summary)
 
         @rumps.clicked('Import detected card…')
         def import_detected(self, sender):
@@ -429,19 +535,27 @@ def main():
             self.busy = True
             self.cancel_event.clear()
             self.menu['Cancel transfer'].set_callback(self.cancel_transfer)
-            self.menu['Ready for a nibble'].title = 'Munching…'
+            self.menu['Ready for a nibble'].title = 'Preparing transfer…'
+            self.transfer_destination = self.config.destination
+            self.latest_progress = Progress('Preparing transfer')
+            self.show_status(None)
+            self.status.update(self.latest_progress)
             config = copy.deepcopy(self.config)
             def work():
                 try:
-                    self.events.put(('result', run(card, config, state_directory(), cancel=self.cancel_event)))
+                    self.events.put(('result', run(card, config, state_directory(), cancel=self.cancel_event, progress=lambda update: self.events.put(('progress', update)))))
                 except Exception as error:
                     self.events.put(('error', interrupted_summary(config.destination, error)))
             self.executor.submit(work)
 
-        def tick(self, sender):
+        def process_events(self, sender=None):
             while not self.events.empty():
                 kind, value = self.events.get_nowait()
-                if kind == 'cards':
+                if kind == 'progress':
+                    self.latest_progress = value
+                    if self.status:
+                        self.status.update(value)
+                elif kind == 'cards':
                     self.scanning = False
                     current = {(c.identity, str(c.root)) for c in value}
                     new = [c for c in value if (c.identity, str(c.root)) not in self.seen]
@@ -469,6 +583,8 @@ def main():
                     self.busy = False
                     self.menu['Cancel transfer'].set_callback(None)
                     self.present_summary(value if kind == 'error' else summarize(value))
+        def tick(self, sender):
+            self.process_events()
             if not self.scanning and not self.busy:
                 self.scanning = True
                 def scan():
@@ -480,7 +596,24 @@ def main():
 
     image = A.NSImage.alloc().initWithContentsOfFile_(str(Path(__file__).resolve().parents[1] / 'assets' / 'NomNom.png'))
     A.NSApplication.sharedApplication().setApplicationIconImage_(image)
-    MenuBarMuncher().run()
+    import rumps.rumps as runtime
+    original_delegate = runtime.NSApp
+
+    class NomNomApplicationDelegate(original_delegate):
+        def applicationShouldTerminateAfterLastWindowClosed_(self, application):
+            return False
+
+        def applicationShouldHandleReopen_hasVisibleWindows_(self, application, visible):
+            self._app['_controller'].show_status(None)
+            return True
+
+    runtime.NSApp = NomNomApplicationDelegate
+    app = MenuBarMuncher()
+    rumps.events.before_start.register(app.ensure_access)
+    try:
+        app.run()
+    finally:
+        runtime.NSApp = original_delegate
 
 
 if __name__ == '__main__':

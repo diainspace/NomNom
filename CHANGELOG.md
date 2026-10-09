@@ -1,5 +1,12 @@
 # Changelog
 
+## Transfer visibility and window access
+
+- Open a retained native status window before background preparation starts, with measured phase, file, and byte updates.
+- Keep the menu-bar-only app accessible through a visible icon, NomNom label, and Show Transfer Status action. Closing the window leaves transfers running.
+- Retain actual completion, cancellation, and failure summaries; validate live progress and reopening through native synthetic transfers.
+- Use the approved dumpling-box app artwork and monochrome menu-bar concept.
+
 ## Local app launch repair
 
 - Replace the shell-script bundle executable with a native Mach-O launcher and local ad-hoc signature to fix Launch Services error -10669.

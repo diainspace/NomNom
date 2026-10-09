@@ -15,7 +15,7 @@ class IconTests(unittest.TestCase):
         for name in ('NomNom.png', 'menu-template.png'):
             data = (assets / name).read_bytes()
             self.assertEqual(data[:8], b'\x89PNG\r\n\x1a\n')
-            self.assertEqual(struct.unpack('!II', data[16:24]), (1024, 1024))
+            self.assertEqual(struct.unpack('!II', data[16:24]), (1254, 1254))
         data = (assets / 'NomNom.icns').read_bytes()
         self.assertEqual(data[:4], b'icns')
         self.assertEqual(struct.unpack('!I', data[4:8])[0], len(data))

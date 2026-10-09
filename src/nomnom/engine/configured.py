@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from ..planning import plan_file
+from ..progress import ProgressReporter
 from ..destinations import validate_destination
 from .ingestion import fingerprint, signature, _inside
 from .ledger import Ledger
@@ -28,7 +29,7 @@ class RunResult:
     not_processed: int = 0
 
 
-def inventory(root):
+def inventory(root, progress=None):
     """Account for all entries without following symlinks, including empty dirs."""
     files, directories, failures = [], [], []
     def walk(directory):
@@ -37,6 +38,8 @@ def inventory(root):
                 entries = sorted(iterator, key=lambda entry: entry.name)
             for entry in entries:
                 path = Path(entry.path)
+                if progress:
+                    progress.emit('Scanning source', path)
                 try:
                     mode = entry.stat(follow_symlinks=False).st_mode
                     if stat.S_ISLNK(mode):
@@ -83,7 +86,9 @@ def manifest(root, files, directories, failures):
     return json.dumps(output, sort_keys=True)
 
 
-def run(card, config, state, resume=None, cancel=None):
+def run(card, config, state, resume=None, cancel=None, progress=None):
+    reporter = ProgressReporter(progress)
+    reporter.emit(force=True)
     config.validate(True)
     root = card.root.resolve(strict=True)
     if root != card.root or not root.is_dir():
@@ -97,9 +102,11 @@ def run(card, config, state, resume=None, cancel=None):
         raise ValueError('Source, destination, and runtime state must not overlap')
     if resume and config.mode != 'backup':
         raise ValueError('Resume is only supported for Backup')
-    files, directories, failures = inventory(root)
+    reporter.emit('Scanning source', root, force=True)
+    files, directories, failures = inventory(root, reporter)
     result = RunResult(destination=str(destination), failures=failures)
     # Build plans before creating any destination folders.
+    reporter.emit('Preparing transfer', root, force=True)
     planned = []
     for source in files:
         try:
@@ -110,14 +117,19 @@ def run(card, config, state, resume=None, cancel=None):
                 result.skipped += 1
         except (ValueError, OSError) as error:
             result.failures.append((str(source), str(error)))
+    reporter.total = len(planned)
+    reporter.failures = len(result.failures)
+    reporter.emit(force=True)
     if cancel is not None and cancel.is_set():
         result.cancelled = True
         result.not_processed = len(planned)
+        reporter.emit('Cancelled', force=True)
         return result
     ledger = Ledger(state)
     try:
         original_manifest = None
         if config.mode == 'backup':
+            reporter.emit('Preparing backup manifest', root, force=True)
             original_manifest = manifest(root, files, directories, failures)
             settings = json.dumps(asdict(config), sort_keys=True)
             if resume:
@@ -147,6 +159,7 @@ def run(card, config, state, resume=None, cancel=None):
                 result.not_processed = len(planned) - index
                 break
             source = item.source
+            reporter.emit('Fingerprinting source', source, force=True)
             try:
                 before = source.stat()
                 digest = fingerprint(source)
@@ -154,6 +167,7 @@ def run(card, config, state, resume=None, cancel=None):
                 target = checked_target(destination, item.relative)
                 if config.mode == 'organize':
                     # Deduplicate within the selected route, never another destination root.
+                    reporter.emit('Verifying existing copies', source)
                     known = next((p for p in ledger.copies(digest) if p.parent == target.parent and p.is_file() and not p.is_symlink() and fingerprint(p) == digest), None)
                     if known is not None:
                         stable(source, before, digest)
@@ -161,17 +175,29 @@ def run(card, config, state, resume=None, cancel=None):
                         result.duplicates += 1
                         ledger.record_copy(card, source, digest, before.st_size, before.st_mtime_ns, known)
                         continue
-                copied = verified_transfer(source, target, before, digest, config.mode == 'backup')
+                def transfer_update(phase, delta=0):
+                    reporter.emit(phase, source, delta)
+                if progress is None:
+                    copied = verified_transfer(source, target, before, digest, config.mode == 'backup')
+                else:
+                    copied = verified_transfer(source, target, before, digest, config.mode == 'backup', transfer_update)
                 stable(source, before)
                 result.verified += 1
                 if copied:
                     result.copied += 1
                 else:
                     result.duplicates += 1
+                reporter.emit('Recording verified transfer', source)
                 ledger.record_copy(card, source, digest, before.st_size, before.st_mtime_ns, target)
             except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 result.failures.append((str(source), str(error)))
+            finally:
+                reporter.done = index + 1
+                reporter.verified = result.verified
+                reporter.failures = len(result.failures)
+                reporter.emit(force=True)
         if config.mode == 'backup':
+            reporter.emit('Finalizing backup', root, force=True)
             # Re-scan catches entries inserted/removed during the backup, too.
             final_files, final_dirs, final_failures = inventory(root)
             try:
@@ -189,6 +215,8 @@ def run(card, config, state, resume=None, cancel=None):
             with ledger.connection:
                 ledger.connection.execute('UPDATE backup_sessions SET status=? WHERE id=?', ('complete' if not result.failures and not result.cancelled else 'incomplete', result.session_id))
         result.complete = not result.failures and not result.cancelled
+        reporter.failures = len(result.failures)
+        reporter.emit('Cancelled' if result.cancelled else ('Complete' if result.complete else 'Finished with failures'), force=True)
         return result
     finally:
         ledger.close()

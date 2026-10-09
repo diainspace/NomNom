@@ -38,3 +38,7 @@ Backup enumerates symlinks without following them and reports them, along with s
 ## Operational limits
 
 Hard-link support is required at the destination for atomic publication. No source file mutation is performed; access times may change from reads. File bytes and atime/mtime are preserved for backup where supported; original directory permissions, xattrs, and creation times are outside scope. Symlinks and special entries are unsupported and make backup incomplete. Concurrent processes and hostile filesystem mutation are outside v0.2 guarantees. No Pi modules are dependencies of the macOS app. GUI packaging and code signing remain future work.
+
+## Progress and window lifecycle
+
+`progress.py` supplies platform-independent immutable snapshots through an optional callback. Inventory, planning, and verified copying emit real phases; transfer writes emit actual byte deltas. The original v0.1 engine stays unchanged. The macOS worker queues snapshots to a main-thread timer. A retained AppKit status window opens synchronously before dispatch and remains reopenable when closed. Closing the last window does not terminate the accessory application. A retained visible status item supplies the menu entry point without a Dock icon. Native tests exercise Launch Services and the actual Cocoa menu using isolated synthetic state.
