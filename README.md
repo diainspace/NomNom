@@ -25,7 +25,7 @@ python3 -m venv .venv
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/nomnom-menubar
 ```
 
-A monochrome NomNom dumpling-box icon and a **NomNom** label appear in the menu bar; macOS adapts it for light and dark appearances. Choose **Configure NomNom…**, pick a mode and destination, then edit the file-type rows. If a source is pending, the window shows its path and a **Save & review transfer** button; otherwise use **Save menu** to save settings without starting a transfer. Use **Eat** to enable a type, folder fields to route it in Organize, and arrows to change priority. The Canon Rebel preset starts with JPEG (`.jpg`, `.jpeg`) and RAW (`.cr2`) routes. Backup ignores extension rules.
+A monochrome NomNom dumpling-box icon appears in the menu bar; macOS adapts it for light and dark appearances. Choose **Configure NomNom…**, pick a mode and destination, then edit the file-type rows. If a source is pending, the window shows its path and a **Save & review transfer** button; otherwise use **Save menu** to save settings without starting a transfer. Use **Eat** to enable a type, folder fields to route it in Organize, and arrows to change priority. The Canon Rebel preset starts with JPEG (`.jpg`, `.jpeg`) and RAW (`.cr2`) routes. Backup ignores extension rules.
 
 Choose a folder hierarchy and a plain-language date layout such as **Year / Month / Day**. The date field also accepts a custom format such as `%Y-%m-%d`. **Capture date, then modified date** uses supported EXIF when available, with a filesystem modification-date fallback. Pick **Sample file…**, then **Preview** to see the planned path and date source. Samples on `/Volumes/<card>` use that volume as their source root; other samples use their parent directory. **Save menu** saves settings; **Reload** retrieves them. No JSON editing is needed.
 
@@ -118,3 +118,5 @@ Starting a transfer immediately opens **Transfer Status**, including preparation
 Choose **Show Transfer Status…** from the persistent NomNom menu to reopen the window. Closing the window does not quit NomNom or cancel a transfer. The app intentionally has no Dock icon. Completion, cancellation, and partial failure leave the actual summary available in the status window and **Last transfer summary…**. Cancel finishes the current file before stopping.
 
 The native launch test also performs an isolated synthetic transfer, checks immediate scanning/copy feedback, invokes the real Cocoa menu to reopen a closed window, and checks completion and partial-failure summaries. It disables physical-card detection and does not access personal files.
+
+The menu-bar item occupies 24 points without a text label, leaving more space beside other menu items. NomNom reasserts its status-item visibility on each detection timer tick. macOS still controls menu-bar space, including fullscreen hiding and overflow on crowded displays.

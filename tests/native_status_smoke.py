@@ -149,7 +149,11 @@ def check_complete():
         assert app.latest_progress.files_done == 2
         assert app.latest_progress.bytes_transferred == 3 * 1024 * 1024
         assert app._status_item.isVisible() and app._status_item.button().image() is not None
-        assert app._status_item.button().title() == 'NomNom'
+        assert app._status_item.button().title() == ''
+        assert app._status_item.length() == 24
+        app._status_item.setVisible_(False)
+        app.ensure_access()
+        assert app._status_item.isVisible() and app._status_item.button().image() is not None
         app.status.window.performClose_(None)
         app.last_transfer(None)
         assert app.status.window.isVisible()

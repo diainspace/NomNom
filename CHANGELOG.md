@@ -1,5 +1,10 @@
 # Changelog
 
+## Persistent compact menu icon
+
+- Keep the menu-bar icon compact at 24 points, removing the text label that consumes scarce menu-bar space.
+- Reassert item visibility on timer ticks, retain the status item, and test restoration after visibility is cleared.
+
 ## Window-close lifecycle hardening
 
 - Explicitly hide configuration and transfer windows when their close button is used, keeping the accessory app and worker running.

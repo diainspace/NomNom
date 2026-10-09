@@ -377,7 +377,7 @@ def main():
             runtime.application_support = lambda name: str(state_directory())
             try:
                 assets = Path(__file__).resolve().parents[1] / 'assets'
-                super().__init__('NomNom', title='NomNom', icon=str(assets / 'menu-template.png'), template=True, quit_button='Quit NomNom')
+                super().__init__('NomNom', title='', icon=str(assets / 'menu-template.png'), template=True, quit_button='Quit NomNom')
             finally:
                 runtime.application_support = support
             self.settings_path = state_directory() / 'settings.json'
@@ -416,7 +416,9 @@ def main():
             self._status_item.setVisible_(True)
             self._status_item.setBehavior_(0)
             button = self._status_item.button()
-            button.setTitle_('NomNom')
+            self._status_item.setLength_(24)
+            button.setTitle_('' if button.image() is not None else 'N')
+            button.setImagePosition_(A.NSImageOnly if button.image() is not None else A.NSNoImage)
             button.setToolTip_('NomNom — open the menu for Transfer Status')
             button.setAccessibilityLabel_('NomNom menu')
             A.NSApp.setActivationPolicy_(A.NSApplicationActivationPolicyAccessory)
@@ -591,6 +593,7 @@ def main():
                     self.menu['Cancel transfer'].set_callback(None)
                     self.present_summary(value if kind == 'error' else summarize(value))
         def tick(self, sender):
+            self.ensure_access()
             self.process_events()
             if not self.scanning and not self.busy:
                 self.scanning = True
