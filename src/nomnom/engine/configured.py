@@ -131,7 +131,10 @@ def run(card, config, state, resume=None, cancel=None, progress=None):
         if config.mode == 'backup':
             reporter.emit('Preparing backup manifest', root, force=True)
             original_manifest = manifest(root, files, directories, failures)
-            settings = json.dumps(asdict(config), sort_keys=True)
+            transfer_settings = asdict(config)
+            # UI prompting does not affect backup identity or legacy resume settings.
+            transfer_settings.pop('prompt_on_insert', None)
+            settings = json.dumps(transfer_settings, sort_keys=True)
             if resume:
                 row = ledger.connection.execute('SELECT card_id, root, destination, config, manifest FROM backup_sessions WHERE id=?', (resume,)).fetchone()
                 if not row or (row[0], row[1], row[3], row[4]) != (card.identity, str(root), settings, original_manifest):

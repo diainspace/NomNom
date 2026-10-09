@@ -50,10 +50,13 @@ class Config:
     date_format: str = '%Y/%m/%d'
     date_sources: List[str] = field(default_factory=lambda: ['exif', 'mtime'])
     backup_name: str = ''
+    prompt_on_insert: bool = True
 
     def validate(self, require_destination=False):
         if type(self.version) is not int or self.version != 1:
             raise ValueError('Unsupported configuration schema version')
+        if not isinstance(self.prompt_on_insert, bool):
+            raise ValueError('Insertion prompt preference must be a boolean')
         if self.mode not in ('organize', 'preserve', 'backup'):
             raise ValueError('Choose Organize, Preserve, or Backup')
         if not isinstance(self.destination, str) or '\x00' in self.destination:

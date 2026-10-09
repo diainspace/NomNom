@@ -309,7 +309,7 @@ class ConfiguredTests(unittest.TestCase):
         with patch.object(detector, '_plist', side_effect=[listing, info]):
             self.assertEqual(detector.mounted_cards()[0].identity, 'card-uuid')
         with patch.object(detector, '_plist', side_effect=[listing, dict(info, RemovableMedia=False)]):
-            self.assertEqual(detector.mounted_cards(), [])
+            self.assertEqual(detector.mounted_cards()[0].identity, 'card-uuid')
 
 if __name__ == '__main__':
     unittest.main()

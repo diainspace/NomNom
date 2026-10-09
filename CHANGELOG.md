@@ -1,5 +1,12 @@
 # Changelog
 
+## Automatic insertion snacks
+
+- Add a local per-user insertion watcher and LaunchAgent installer for mounted SD cards and other external physical volumes.
+- Offer Eat this snack, Not now, and Don’t ask again before configuration; never auto-authorize copying.
+- Persist a default-on insertion-prompt preference with immediate settings re-enable, while preserving manual use.
+- Keep device checks metadata-only and avoid duplicate UI launches.
+
 ## Green progress and background controls
 
 - Replace the spinner with a green progress bar driven by actual processed-file totals, with an indeterminate bar before totals are known.

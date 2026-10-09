@@ -46,3 +46,7 @@ Hard-link support is required at the destination for atomic publication. No sour
 ## Settings review and deferral
 
 Destination selection persists only the destination and keeps the configuration form editable. It neither saves unrelated form edits nor queues transfer review. The explicit bottom Save & review transfer action saves the full form and offers Start/Not now. Not now keeps the card pending, preserves the current summary, and returns to settings without worker dispatch, notifications, or a cancelled result. Cancellation reporting applies to an actual started transfer.
+
+## Per-user insertion watcher
+
+`platforms/macos_watcher.py` polls the metadata adapter independently of the GUI, compares volume UUID plus resolved mount path, and launches the native app only for newly observed mounted external physical volumes. No file enumeration or ingestion happens in the watcher. Successful observations update the seen set; launch errors are retried. Settings are reloaded each poll and malformed settings fail closed. The optional per-user LaunchAgent runs at login, restarts on failure, and retains no card content. `prompt_on_insert` defaults true for older configs and is validated as a boolean. Insertion prompts and setting changes remain separate from Start authorization.

@@ -104,9 +104,9 @@ def exercise():
         source = Path(runtime.name) / 'pending-card'
         source.mkdir()
         card = SimulatedDetector(source, 'synthetic-pending').inserted()
-        with patch.object(rumps, 'alert') as alert:
+        with patch.object(rumps, 'alert', return_value=1) as alert:
             app.offer(card, detected=True)
-            alert.assert_not_called()
+            assert alert.call_count == 1 and alert.call_args.args[0] == 'NomNom has identified a snack'
         assert app.pending_card == card and not app.busy
         assert 'Save & review' in str(window.save_button.title())
         assert str(source.resolve()) in str(window.source_label.stringValue())
@@ -158,10 +158,30 @@ def exercise():
         assert app.busy and app.pending_card is None
         app.busy = False
         app.scanning = True  # Prevent this synthetic tick from dispatching diskutil.
-        app.offer(card, detected=True)
+        with patch.object(rumps, 'alert', return_value=1):
+            app.offer(card, detected=True)
         app.events.put(('cards', []))
         app.tick(None)
         assert app.pending_card is None and app.source_root is None
+        # Not now never starts work or creates a cancellation summary.
+        previous_summary = app.last_summary
+        with patch.object(rumps, 'alert', return_value=0), patch.object(app.executor, 'submit') as submit:
+            app.offer(card, detected=True)
+            submit.assert_not_called()
+        assert app.pending_card is None and app.last_summary is previous_summary
+        # Global suppression is persisted and suppresses subsequent insertions.
+        with patch.object(rumps, 'alert', return_value=-1), patch.object(app.executor, 'submit') as submit:
+            app.offer(card, detected=True)
+            submit.assert_not_called()
+        assert not app.config.prompt_on_insert
+        assert not Config.load(app.settings_path).prompt_on_insert
+        with patch.object(rumps, 'alert') as alert:
+            app.offer(card, detected=True)
+            alert.assert_not_called()
+        # Settings can re-enable prompts without starting a transfer.
+        window.insertion_prompt.setState_(AppKit.NSControlStateValueOn)
+        window.insertionPrompt_(None)
+        assert app.config.prompt_on_insert and Config.load(app.settings_path).prompt_on_insert
         print('Native icons, immediate destination persistence, cancellation, startup and automatic/manual transfer regressions passed', flush=True)
     except Exception as error:
         errors.append(error)

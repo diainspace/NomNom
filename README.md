@@ -126,3 +126,23 @@ The native launcher retains the `com.nomnom.ingest` bundle identity rather than 
 A finished attempt with verified files and reported issues says **Transfer finished — with notes**. Files skipped by selection rules are labeled as excluded by your file-selection settings, not treated as transfer failures. Issue counts and paths remain in the details; this wording does not change verification or engine success flags. An incomplete Backup is explicitly labeled **Backup finished — incomplete**.
 
 The status window floats above ordinary application windows. A green bar tracks processed files against the discovered selection total; preparation uses an indeterminate moving bar while that total is unknown. Copying, hashing, and verification share one steady **Transferring files** heading. **Run in the background** hides the running status window without stopping work. Completion updates a backgrounded window without bringing it forward. Reopen it from **Show Transfer Status…**; the button becomes **Dismiss** when the attempt finishes. These controls never quit NomNom. Cancellation remains available separately from the menu during an active transfer.
+
+## Automatic snacks on insertion
+
+The optional macOS per-user insertion watcher starts at login and polls mounted external physical devices every three seconds using diskutil metadata. It opens NomNom if needed, without duplicating an existing UI or reading device files. SD/microSD cards and mounted external disks are supported; peripherals without a mounted filesystem are not ingestion sources. Devices already mounted when the watcher starts are offered too.
+
+**NomNom has identified a snack** offers **Eat this snack**, **Not now**, and **Don’t ask again**. Eat opens configuration, never starts copying. Review the full form and choose Save & review transfer, then Start. Not now quietly dismisses this insertion; reinserting the device can prompt again. Don’t ask again disables automatic prompts globally, persisting outside Git. Re-enable **Offer snacks when external devices are connected** in settings; that checkbox saves immediately without starting a transfer. Manual source selection remains available when prompts are disabled.
+
+Install the default-enabled watcher once after building the local app:
+
+```sh
+.venv/bin/python tools/install_macos_watcher.py
+```
+
+This creates only `~/Library/LaunchAgents/com.nomnom.insertion-watcher.plist`, plus logs in the existing runtime state directory. No root privileges or system-wide service are used. To remove it:
+
+```sh
+.venv/bin/python tools/install_macos_watcher.py --uninstall
+```
+
+The watcher depends on the current checkout and virtual environment. Moving those paths requires reinstalling the agent. Quitting NomNom closes the UI; the separate insertion watcher remains available for the next insertion unless prompts are disabled or the agent is uninstalled. Physical hotplug behavior still needs hardware testing; regressions use synthetic device metadata.

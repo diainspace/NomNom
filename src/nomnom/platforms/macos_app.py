@@ -84,7 +84,9 @@ def main():
             self.button('+ File type', 20, 120, 110, 'addRule:')
             self.button('Canon Rebel preset', 140, 120, 180, 'preset:')
             self.button('Sample file…', 330, 120, 130, 'chooseSample:')
-            self.preview_label = self.label('Pick a sample file to preview its destination.', 20, 67, 640, 46)
+            self.insertion_prompt = self.button('Offer snacks when external devices are connected', 20, 87, 640, 'insertionPrompt:')
+            self.insertion_prompt.setButtonType_(A.NSButtonTypeSwitch)
+            self.preview_label = self.label('Pick a sample file to preview its destination.', 20, 48, 640, 35)
             self.button('Reload', 20, 20, 100, 'reload:')
             self.button('Preview', 130, 20, 100, 'refreshPreview:')
             self.save_button = self.button('Save menu', 465, 20, 195, 'save:')
@@ -160,12 +162,13 @@ def main():
             self.date_source.selectItemAtIndex_(0 if 'exif' in config.date_sources else 1)
             self.unmatched.selectItemAtIndex_(['skip', 'include', 'error'].index(config.unmatched))
             self.backup.setStringValue_(config.backup_name)
+            self.insertion_prompt.setState_(A.NSControlStateValueOn if config.prompt_on_insert else A.NSControlStateValueOff)
             self.draw_rules(config.rules)
             self.unmatched_folder = config.unmatched_folder
 
         @objc.python_method
         def read(self):
-            return Config(mode=['organize', 'preserve', 'backup'][self.mode.indexOfSelectedItem()],
+            return Config(prompt_on_insert=self.insertion_prompt.state() == A.NSControlStateValueOn, mode=['organize', 'preserve', 'backup'][self.mode.indexOfSelectedItem()],
                           destination=str(self.destination.stringValue()), rules=self.rules(),
                           hierarchy=['date-extension', 'extension-date', 'date', 'extension', 'none'][self.hierarchy.indexOfSelectedItem()],
                           date_format=self.date_formats.get(str(self.date_format.stringValue()), str(self.date_format.stringValue())),
@@ -191,6 +194,16 @@ def main():
             if panel.runModal() == A.NSModalResponseOK:
                 return Path(str(panel.URL().path()))
             return None
+
+        def insertionPrompt_(self, sender):
+            try:
+                updated = copy.deepcopy(self.app.config)
+                updated.prompt_on_insert = self.insertion_prompt.state() == A.NSControlStateValueOn
+                updated.save(self.app.settings_path)
+                self.app.config = updated
+            except (ValueError, OSError) as error:
+                self.insertion_prompt.setState_(A.NSControlStateValueOn if self.app.config.prompt_on_insert else A.NSControlStateValueOff)
+                rumps.alert('Could not save insertion preference', str(error))
 
         def modeChanged_(self, sender):
             mode = self.mode.indexOfSelectedItem()
@@ -438,6 +451,7 @@ def main():
             self.events = queue.Queue()
             self.detector = MacOSDetector()
             self.seen = set()
+            self.manual_detection = False
             self.scanning = False
             self.busy = False
             self.settings = None
@@ -543,12 +557,32 @@ def main():
                 self.review_pending()
             else:
                 self.seen.clear()
+                self.manual_detection = True
                 self.tick(None)
                 self.menu['Ready for a nibble'].title = 'Checking for a source card…'
 
         def offer(self, card, detected=False):
             if self.busy:
                 return
+            if detected:
+                if not self.config.prompt_on_insert:
+                    return
+                choice = rumps.alert('NomNom has identified a snack',
+                                     'External device: {}\n\nWould you like NomNom to eat this snack? You will review all settings before starting a transfer.'.format(card.root),
+                                     ok='Eat this snack', cancel='Not now', other="Don’t ask again")
+                if choice == -1:
+                    updated = copy.deepcopy(self.config)
+                    updated.prompt_on_insert = False
+                    try:
+                        updated.save(self.settings_path)
+                        self.config = updated
+                        if self.settings:
+                            self.settings.insertion_prompt.setState_(A.NSControlStateValueOff)
+                    except (ValueError, OSError) as error:
+                        rumps.alert('Could not save insertion preference', str(error))
+                    return
+                if choice != 1:
+                    return
             self.source_root = card.root
             self.pending_card = card
             self.pending_detected = detected
@@ -628,7 +662,9 @@ def main():
                         if new:
                             card = new[0]
                             self.seen.add((card.identity, str(card.root)))
-                            self.offer(card, detected=True)
+                            manual = self.manual_detection
+                            self.manual_detection = False
+                            self.offer(card, detected=not manual)
                 elif kind == 'scan-error':
                     self.scanning = False
                     self.menu['Ready for a nibble'].title = 'Card detection unavailable — choose a source folder'

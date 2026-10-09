@@ -20,8 +20,7 @@ class MacOSDetector:
             for partition in disk.get('Partitions', []):
                 info = self._plist('info', '-plist', partition['DeviceIdentifier'])
                 mount = info.get('MountPoint')
-                removable = info.get('RemovableMedia') or info.get('Ejectable')
                 identity = info.get('VolumeUUID')
-                if mount and removable and identity and Path(mount).is_dir():
+                if mount and identity and Path(mount).is_dir():
                     cards.append(Card(str(identity), Path(mount).resolve()))
         return cards
