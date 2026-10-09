@@ -179,7 +179,7 @@ def check_failure():
             assert time.monotonic() < deadline
             AppHelper.callLater(0.1, check_failure)
             return
-        assert app.last_summary.title == 'Transfer partially completed'
+        assert app.last_summary.title == 'Transfer finished — with notes'
         assert 'Failed entries/issues: 1' in str(app.status.details.string())
         assert not app.status.cancel.isEnabled()
         app.present_summary(summarize(RunResult(cancelled=True, copied=1, verified=1, not_processed=1, destination=str(root / 'out'))))

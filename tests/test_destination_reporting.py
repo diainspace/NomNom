@@ -140,11 +140,31 @@ class DestinationReportingTests(unittest.TestCase):
         (self.out / 'two.jpg').write_bytes(b'collision')
         result = run(self.card, self.config, self.state)
         self.assertEqual((result.copied, result.verified, len(result.failures)), (1, 1, 1))
-        self.assertEqual(summarize(result).title, 'Transfer partially completed')
+        self.assertEqual(summarize(result).title, 'Transfer finished — with notes')
         (self.out / 'one.jpg').write_bytes(b'another collision')
         result = run(self.card, self.config, self.state)
         self.assertEqual(summarize(result).title, 'Transfer failed')
         self.assertEqual(result.verified, 0)
+
+    def test_finished_attempt_with_user_exclusions_and_inventory_note(self):
+        result = RunResult(copied=788, verified=788, skipped=22,
+                           destination='/synthetic/destination',
+                           failures=[('/synthetic/card/.Trashes', 'Operation not permitted')])
+        summary = summarize(result)
+        self.assertEqual(summary.title, 'Transfer finished — with notes')
+        self.assertIn('The transfer is finished.', summary.text)
+        self.assertIn('Skipped: 22 (excluded by your file-selection settings)', summary.text)
+        self.assertIn('Failed entries/issues: 1', summary.text)
+        self.assertIn('/synthetic/card/.Trashes: Operation not permitted', summary.text)
+        self.assertFalse(result.complete)
+
+    def test_incomplete_backup_remains_explicit(self):
+        result = RunResult(copied=1, verified=1, session_id='synthetic-session',
+                           failures=[('/synthetic/card/link', 'Unsupported symbolic link')])
+        summary = summarize(result)
+        self.assertEqual(summary.title, 'Backup finished — incomplete')
+        self.assertIn('some entries could not be backed up', summary.text)
+        self.assertFalse(result.complete)
 
     def test_cancel_before_start_no_runtime_or_destination_created(self):
         self.photo('one.jpg')

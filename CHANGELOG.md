@@ -1,5 +1,11 @@
 # Changelog
 
+## Finished transfers and selection notes
+
+- Say “Transfer finished — with notes” when an attempt has ended with verified files and reported issues, rather than implying it is still partly in progress.
+- Explain skipped files as exclusions from the user’s file-selection settings; retain actual issue counts and details.
+- Keep incomplete backups explicitly labeled incomplete and preserve engine success/failure semantics.
+
 ## Native application identity and menu registration
 
 - Embed framework Python in the native launcher instead of replacing NomNom with Python.app, preserving the macOS application identity.

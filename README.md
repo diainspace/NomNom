@@ -122,3 +122,5 @@ The native launch test also performs an isolated synthetic transfer, checks imme
 The menu-bar item occupies 24 points without a text label, leaving more space beside other menu items. NomNom reasserts its status-item visibility on each detection timer tick. macOS still controls menu-bar space, including fullscreen hiding and overflow on crowded displays.
 
 The native launcher retains the `com.nomnom.ingest` bundle identity rather than launching `Python.app`. Menu registration is refreshed after Cocoa finishes launching, and the template image is explicitly attached to the retained status item. The Dock icon remains intentionally disabled.
+
+A finished attempt with verified files and reported issues says **Transfer finished — with notes**. Files skipped by selection rules are labeled as excluded by your file-selection settings, not treated as transfer failures. Issue counts and paths remain in the details; this wording does not change verification or engine success flags. An incomplete Backup is explicitly labeled **Backup finished — incomplete**.
