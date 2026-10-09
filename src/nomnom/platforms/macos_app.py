@@ -13,7 +13,7 @@ from ..settings import select_destination
 from ..destinations import configure_destination_panel, configure_source_panel, validate_destination
 from ..reporting import summarize, interrupted_summary
 from ..detection.simulated import SimulatedDetector
-from ..engine.configured import run, RunResult
+from ..engine.configured import run
 from .macos_detection import MacOSDetector
 
 
@@ -213,11 +213,7 @@ def main():
                                                          self.app.settings_path, self.app.sources())
                     self.destination.setStringValue_(self.app.config.destination)
                     self.refreshPreview_(sender)
-                    if self.app.pending_card is not None:
-                        # Explicit folder selection confirms destination; Start still authorizes copying.
-                        self.save_(sender)
-                    else:
-                        self.preview_label.setStringValue_('Destination saved. Choose a source or insert a card to import.')
+                    self.preview_label.setStringValue_('Destination saved. Review the remaining settings, then choose Save & review transfer.' if self.app.pending_card else 'Destination saved. Choose a source or insert a card to import.')
                 except (ValueError, OSError, RuntimeError) as error:
                     rumps.alert('Destination unavailable', str(error))
 
@@ -535,8 +531,10 @@ def main():
                 return
             message = 'Source (read only): {}\n\nDestination: {}\n\nMode: {}\n\nStart a verified local transfer?'.format(card.root, self.config.destination, self.config.mode.title())
             if rumps.alert('Review transfer', message, ok='Start', cancel='Not now') != 1:
-                self.present_summary(summarize(RunResult(destination=self.config.destination, cancelled=True)))
-                # Keep this source pending so configuring a new destination can resume the review.
+                # No transfer began: deferring is not a cancellation or an outcome.
+                self.menu['Ready for a nibble'].title = 'Ready when you are — review settings'
+                self.configure(None)
+                self.settings.preview_label.setStringValue_('No transfer started. Review your settings whenever you are ready.')
                 return
             self.pending_card = None
             self.pending_detected = False

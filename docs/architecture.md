@@ -42,3 +42,7 @@ Hard-link support is required at the destination for atomic publication. No sour
 ## Progress and window lifecycle
 
 `progress.py` supplies platform-independent immutable snapshots through an optional callback. Inventory, planning, and verified copying emit real phases; transfer writes emit actual byte deltas. The original v0.1 engine stays unchanged. The macOS worker queues snapshots to a main-thread timer. A retained AppKit status window opens synchronously before dispatch and remains reopenable when closed. Closing the last window does not terminate the accessory application. A retained visible status item supplies the menu entry point without a Dock icon. Native tests exercise Launch Services and the actual Cocoa menu using isolated synthetic state.
+
+## Settings review and deferral
+
+Destination selection persists only the destination and keeps the configuration form editable. It neither saves unrelated form edits nor queues transfer review. The explicit bottom Save & review transfer action saves the full form and offers Start/Not now. Not now keeps the card pending, preserves the current summary, and returns to settings without worker dispatch, notifications, or a cancelled result. Cancellation reporting applies to an actual started transfer.

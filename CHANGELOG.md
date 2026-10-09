@@ -1,5 +1,11 @@
 # Changelog
 
+## Review settings before starting
+
+- Destination selection saves the destination without prematurely opening transfer review or saving unrelated edits.
+- Only the explicit bottom Save & review transfer action cues Start/Not now from the settings form.
+- Not now returns to settings with the card pending and does not report an unstarted transfer as cancelled.
+
 ## Finished transfers and selection notes
 
 - Say “Transfer finished — with notes” when an attempt has ended with verified files and reported issues, rather than implying it is still partly in progress.

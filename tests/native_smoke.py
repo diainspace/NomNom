@@ -110,17 +110,32 @@ def exercise():
         assert app.pending_card == card and not app.busy
         assert 'Save & review' in str(window.save_button.title())
         assert str(source.resolve()) in str(window.source_label.stringValue())
-        # Destination selection saves and resumes this same pending source, but declining keeps it.
+        # Destination is persisted without saving other edits or offering Start.
         fake_panel.runModal.return_value = AppKit.NSModalResponseOK
         fake_panel.URL.return_value = NSURL.fileURLWithPath_(str(chosen))
-        with patch.object(AppKit, 'NSOpenPanel', SimpleNamespace(openPanel=lambda: fake_panel)), patch.object(AppHelper, 'callAfter', side_effect=lambda callback: callback()), patch.object(rumps, 'notification'), patch.object(rumps, 'alert', return_value=0) as alert:
+        window.date_format.setStringValue_('%Y-%m')
+        with patch.object(AppKit, 'NSOpenPanel', SimpleNamespace(openPanel=lambda: fake_panel)), patch.object(AppHelper, 'callAfter') as later, patch.object(rumps, 'alert') as alert, patch.object(app.executor, 'submit') as submit:
             window.chooseDestination_(None)
-            review = [call for call in alert.call_args_list if call.args[0] == 'Review transfer']
-            assert len(review) == 1
-            assert 'Source (read only): ' + str(source.resolve()) in review[0].args[1]
-            assert 'Destination: ' + str(chosen.resolve()) in review[0].args[1]
+            alert.assert_not_called()
+            later.assert_not_called()
+            submit.assert_not_called()
         assert app.pending_card == card and not app.busy
         assert Path(app.config.destination) == chosen.resolve()
+        assert str(window.date_format.stringValue()) == '%Y-%m'
+        assert app.config.date_format != '%Y-%m'
+        previous_summary = app.last_summary
+        # Only the bottom action saves all settings and cues review. Not now
+        # returns to the same editable form, without notifications or a result.
+        with patch.object(AppHelper, 'callAfter', side_effect=lambda callback: callback()), patch.object(rumps, 'alert', return_value=0) as alert, patch.object(rumps, 'notification') as notification, patch.object(app.executor, 'submit') as submit:
+            window.save_(None)
+            assert alert.call_count == 1 and alert.call_args.args[0] == 'Review transfer'
+            notification.assert_not_called()
+            submit.assert_not_called()
+        assert app.config.date_format == '%Y-%m'
+        assert app.last_summary is previous_summary
+        assert app.pending_card == card and not app.busy and window.window.isVisible()
+        assert 'No transfer started' in str(window.preview_label.stringValue())
+        assert 'cancel' not in str(app.menu['Ready for a nibble'].title).lower()
         # Manual source selection must not poison the pending card by selecting the destination.
         with patch.object(AppKit, 'NSOpenPanel', SimpleNamespace(openPanel=lambda: fake_panel)), patch.object(rumps, 'alert') as alert:
             app.folder(None)
