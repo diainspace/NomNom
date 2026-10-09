@@ -1,5 +1,10 @@
 # Changelog
 
+## Window-close lifecycle hardening
+
+- Explicitly hide configuration and transfer windows when their close button is used, keeping the accessory app and worker running.
+- Leave all windows hidden across real event-loop turns in native regression tests before reopening through the Cocoa menu.
+
 ## Transfer visibility and window access
 
 - Open a retained native status window before background preparation starts, with measured phase, file, and byte updates.

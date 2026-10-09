@@ -79,10 +79,12 @@ def check_scan():
         assert not app.status.window.isVisible()
         assert app.busy and not app.cancel_event.is_set()
         assert app._nsapp.applicationShouldTerminateAfterLastWindowClosed_(AppKit.NSApp) is False
-        app.show_status(None)
-        assert app.status.window.isVisible()
-        scan_gate.set()
-        AppHelper.callLater(0.1, check_copy)
+        app.configure(None)
+        app.settings.window.performClose_(None)
+        assert not app.settings.window.isVisible()
+        # Yield to the real event loop with every window hidden. Immediate reopen
+        # misses deferred termination and event-loop lifetime problems.
+        AppHelper.callLater(1.0, reopen_after_hidden_scan)
     except Exception as error:
         finish(error)
 
@@ -100,14 +102,35 @@ def check_copy():
         assert app.latest_progress.bytes_transferred > 0
         assert 'Bytes transferred:' in details and ' / 2' in details and '%' not in details
         app.status.window.performClose_(None)
-        app.show_status(None)
-        assert app.status.window.isVisible() and app.busy
-        item = app.menu['Show Transfer Status…']
-        assert item.callback is not None
-        app.status.window.performClose_(None)
-        menu = app._status_item.menu()
-        menu.performActionForItemAtIndex_(menu.indexOfItem_(item._menuitem))
-        assert app.status.window.isVisible()
+        assert not app.status.window.isVisible()
+        AppHelper.callLater(1.0, reopen_after_hidden_copy)
+    except Exception as error:
+        finish(error)
+
+
+def reopen_from_menu():
+    assert AppKit.NSApp.isRunning()
+    assert app._status_item.isVisible()
+    assert not app.status.window.isVisible()
+    assert app.busy and not app.cancel_event.is_set()
+    item = app.menu['Show Transfer Status…']
+    menu = app._status_item.menu()
+    menu.performActionForItemAtIndex_(menu.indexOfItem_(item._menuitem))
+    assert app.status.window.isVisible()
+
+
+def reopen_after_hidden_scan():
+    try:
+        reopen_from_menu()
+        scan_gate.set()
+        AppHelper.callLater(0.1, check_copy)
+    except Exception as error:
+        finish(error)
+
+
+def reopen_after_hidden_copy():
+    try:
+        reopen_from_menu()
         copy_gate.set()
         AppHelper.callLater(0.1, check_complete)
     except Exception as error:
@@ -155,8 +178,20 @@ def check_failure():
         app.present_summary(summarize(RunResult(cancelled=True, copied=1, verified=1, not_processed=1, destination=str(root / 'out'))))
         assert str(app.status.phase.stringValue()) == 'Transfer cancelled'
         app.status.window.performClose_(None)
-        app.show_status(None)
+        AppHelper.callLater(1.0, check_idle_hidden)
+    except Exception as error:
+        finish(error)
+
+
+def check_idle_hidden():
+    try:
+        assert AppKit.NSApp.isRunning() and app._status_item.isVisible()
+        assert not app.busy and not app.status.window.isVisible()
+        item = app.menu['Show Transfer Status…']
+        menu = app._status_item.menu()
+        menu.performActionForItemAtIndex_(menu.indexOfItem_(item._menuitem))
         assert app.status.window.isVisible()
+        assert str(app.status.phase.stringValue()) == 'Transfer cancelled'
         finish()
     except Exception as error:
         finish(error)

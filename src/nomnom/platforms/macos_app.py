@@ -30,6 +30,10 @@ def main():
         raise SystemExit('Install the macOS extras: python -m pip install -e ".[macos,exif]"') from error
 
     class SettingsWindow(NSObject):
+        def windowShouldClose_(self, sender):
+            sender.orderOut_(None)
+            return False
+
         def initWithApp_(self, app):
             self = objc.super(SettingsWindow, self).init()
             if self is None:
@@ -43,6 +47,7 @@ def main():
                 A.NSBackingStoreBuffered, False)
             self.window.setTitle_('NomNom® — Choose the menu')
             self.window.setReleasedWhenClosed_(False)
+            self.window.setDelegate_(self)
             self.window.center()
             self.view = self.window.contentView()
             self.label('You decide what it eats and where it puts it.', 20, 602, 640)
@@ -333,8 +338,10 @@ def main():
             return self
 
         def windowShouldClose_(self, sender):
-            # Closing only hides this retained window. The engine remains running.
-            return True
+            # Hide explicitly instead of entering Cocoa's last-window close lifecycle.
+            # Only the explicit Quit menu action terminates this accessory app.
+            sender.orderOut_(None)
+            return False
 
         def cancelTransfer_(self, sender):
             self.app.cancel_transfer(sender)
