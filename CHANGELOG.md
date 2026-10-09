@@ -1,5 +1,11 @@
 # Changelog
 
+## Native application identity and menu registration
+
+- Embed framework Python in the native launcher instead of replacing NomNom with Python.app, preserving the macOS application identity.
+- Refresh menu registration after Cocoa launch and explicitly reattach the template artwork.
+- Validate bundle identity and native status-item window visibility with synthetic transfers.
+
 ## Persistent compact menu icon
 
 - Keep the menu-bar icon compact at 24 points, removing the text label that consumes scarce menu-bar space.

@@ -4,6 +4,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 
@@ -28,9 +29,17 @@ def build_bundle(output=None):
     # venv interpreter symlink: Python needs the venv path to find its packages.
     interpreter = json.dumps(sys.executable)
     source_path = json.dumps(str(root / 'src'))
+    framework = sysconfig.get_config_var('PYTHONFRAMEWORK')
+    if not framework:
+        raise RuntimeError('The native launcher currently requires framework Python')
+    library = Path(sys.base_prefix) / framework
+    if not library.is_file():
+        raise RuntimeError('Python framework library not found: ' + str(library))
+    library_path = json.dumps(str(library))
     code = '''#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <dlfcn.h>
 int main(int argc, char **argv) {
     setenv("PYTHONDONTWRITEBYTECODE", "1", 1);
     setenv("PYTHONPATH", SOURCE_PATH, 1);
@@ -41,11 +50,14 @@ int main(int argc, char **argv) {
     args[1] = "-m";
     args[2] = "nomnom.platforms.bundle_launcher";
     for (int i = 1; i < argc; i++) args[i + 2] = argv[i];
-    execv(INTERPRETER, args);
-    perror("NomNom could not start its project interpreter");
-    return 1;
+    // Keep Cocoa registered to this bundle, rather than exec into Python.app.
+    void *library = dlopen(LIBRARY_PATH, RTLD_NOW | RTLD_GLOBAL);
+    if (!library) { fprintf(stderr, "NomNom Python library: %s\\n", dlerror()); return 1; }
+    int (*python_main)(int, char **) = dlsym(library, "Py_BytesMain");
+    if (!python_main) { fprintf(stderr, "NomNom missing Python entry point\\n"); return 1; }
+    return python_main(argc + 2, args);
 }
-'''.replace('SOURCE_PATH', source_path).replace('INTERPRETER', interpreter)
+'''.replace('SOURCE_PATH', source_path).replace('INTERPRETER', interpreter).replace('LIBRARY_PATH', library_path)
     subprocess.run(['/usr/bin/xcrun', 'clang', '-x', 'c', '-', '-o', str(launcher)], input=code, text=True, check=True, capture_output=True)
     subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', str(bundle)], check=True, capture_output=True)
     return bundle

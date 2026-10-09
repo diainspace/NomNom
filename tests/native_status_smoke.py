@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Event
 from unittest.mock import patch
 import AppKit
+from Foundation import NSBundle
 import rumps
 from PyObjCTools import AppHelper
 from nomnom.config import Config
@@ -151,6 +152,8 @@ def check_complete():
         assert app._status_item.isVisible() and app._status_item.button().image() is not None
         assert app._status_item.button().title() == ''
         assert app._status_item.length() == 24
+        assert app._status_item.button().window().isVisible()
+        assert app._status_item.button().image().isTemplate()
         app._status_item.setVisible_(False)
         app.ensure_access()
         assert app._status_item.isVisible() and app._status_item.button().image() is not None
@@ -211,6 +214,8 @@ def start():
     try:
         assert AppKit.NSApp.activationPolicy() == AppKit.NSApplicationActivationPolicyAccessory
         assert app._status_item.isVisible()
+        if os.environ.get('NOMNOM_SMOKE_REPORT'):
+            assert NSBundle.mainBundle().bundleIdentifier() == 'com.nomnom.ingest'
         app.config = Config(mode='preserve', destination=str(root / 'out'))
         with patch.object(rumps, 'alert', return_value=1):
             app.offer(card, detected=False)

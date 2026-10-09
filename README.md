@@ -101,7 +101,7 @@ To regenerate the launcher after moving the checkout or virtual environment:
 .venv/bin/python tools/build_macos_app.py
 ```
 
-This launcher references the current checkout and interpreter; it is not a self-contained distributable and is not installed system-wide. Developer ID signing/notarization remain future work. Building requires the macOS Command Line Tools (Clang) and the system codesign tool; no certificate or system-wide installation is used. To regenerate icon assets, run `.venv/bin/python tools/build_icons.py` with Pillow installed.
+This launcher embeds the current Python framework in the native NomNom process and references the current checkout and virtual environment; it is not a self-contained distributable and is not installed system-wide. Developer ID signing/notarization remain future work. Building requires a framework Python installation, the macOS Command Line Tools (Clang) and the system codesign tool; no certificate or system-wide installation is used. To regenerate icon assets, run `.venv/bin/python tools/build_icons.py` with Pillow installed.
 
 The bundle executable is native Mach-O, rather than a shell script, so Launch Services can open it reliably. A build replaces and ad-hoc-signs only the generated project-local bundle. To run the same `open` startup path with card detection disabled, synthetic temporary settings, and transfer dispatch mocked:
 
@@ -120,3 +120,5 @@ Choose **Show Transfer Status…** from the persistent NomNom menu to reopen the
 The native launch test also performs an isolated synthetic transfer, checks immediate scanning/copy feedback, invokes the real Cocoa menu to reopen a closed window, and checks completion and partial-failure summaries. It disables physical-card detection and does not access personal files.
 
 The menu-bar item occupies 24 points without a text label, leaving more space beside other menu items. NomNom reasserts its status-item visibility on each detection timer tick. macOS still controls menu-bar space, including fullscreen hiding and overflow on crowded displays.
+
+The native launcher retains the `com.nomnom.ingest` bundle identity rather than launching `Python.app`. Menu registration is refreshed after Cocoa finishes launching, and the template image is explicitly attached to the retained status item. The Dock icon remains intentionally disabled.

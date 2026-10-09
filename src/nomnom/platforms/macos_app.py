@@ -411,11 +411,12 @@ def main():
             self.ui_timer.start()
 
         def ensure_access(self):
-            # Use a strong item reference plus a readable title, even if image rendering fails.
+            # Retain and reattach the native template after launch and on timer ticks.
             self._status_item = self._nsapp.nsstatusitem
             self._status_item.setVisible_(True)
             self._status_item.setBehavior_(0)
             button = self._status_item.button()
+            button.setImage_(self._icon_nsimage)
             self._status_item.setLength_(24)
             button.setTitle_('' if button.image() is not None else 'N')
             button.setImagePosition_(A.NSImageOnly if button.image() is not None else A.NSNoImage)
@@ -610,6 +611,10 @@ def main():
     original_delegate = runtime.NSApp
 
     class NomNomApplicationDelegate(original_delegate):
+        def applicationDidFinishLaunching_(self, notification):
+            objc.super(NomNomApplicationDelegate, self).applicationDidFinishLaunching_(notification)
+            self._app['_controller'].ensure_access()
+
         def applicationShouldTerminateAfterLastWindowClosed_(self, application):
             return False
 
