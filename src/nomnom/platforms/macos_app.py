@@ -10,12 +10,14 @@ from pathlib import Path
 from ..config import Config, Rule, state_directory
 from ..planning import preview
 from ..progress import Progress
+from ..devices import DeviceService
 from ..settings import select_destination
 from ..destinations import configure_destination_panel, configure_source_panel, validate_destination
 from ..reporting import summarize, interrupted_summary
 from ..detection.simulated import SimulatedDetector
 from ..engine.configured import run
 from .macos_detection import MacOSDetector
+from .macos_devices import MacOSDeviceAdapter
 
 
 def main():
@@ -373,6 +375,20 @@ def main():
             self.details.setString_('Start a transfer from the NomNom menu. Closing this window keeps NomNom running.')
             scroll.setDocumentView_(self.details)
             view.addSubview_(scroll)
+            self.eject_button = A.NSButton.alloc().initWithFrame_(A.NSMakeRect(20, 18, 110, 30))
+            self.eject_button.setTitle_('Eject…')
+            self.eject_button.setBezelStyle_(A.NSBezelStyleRounded)
+            self.eject_button.setTarget_(self)
+            self.eject_button.setAction_('ejectDevice:')
+            view.addSubview_(self.eject_button)
+            self.format_button = A.NSButton.alloc().initWithFrame_(A.NSMakeRect(140, 18, 175, 30))
+            self.format_button.setTitle_('Reformat & Eject…')
+            self.format_button.setBezelStyle_(A.NSBezelStyleRounded)
+            self.format_button.setTarget_(self)
+            self.format_button.setAction_('formatDevice:')
+            view.addSubview_(self.format_button)
+            self.eject_button.setEnabled_(False)
+            self.format_button.setEnabled_(False)
             self.action = A.NSButton.alloc().initWithFrame_(A.NSMakeRect(455, 18, 175, 30))
             self.action.setTitle_('Dismiss')
             self.action.setBezelStyle_(A.NSBezelStyleRounded)
@@ -388,6 +404,12 @@ def main():
             sender.orderOut_(None)
             return False
 
+        def ejectDevice_(self, sender):
+            self.app.eject_device(sender)
+
+        def formatDevice_(self, sender):
+            self.app.format_device(sender)
+
         def hideStatus_(self, sender):
             self.window.orderOut_(None)
 
@@ -401,6 +423,8 @@ def main():
             self.details.setString_(counts + '\n\nSource (read only): ' + str(self.app.source_root or '—') + '\nDestination: ' + self.app.transfer_destination)
             self.action.setTitle_('Run in the background' if self.app.busy else 'Dismiss')
             self.bar.update(progress, self.app.busy)
+            self.eject_button.setEnabled_(False)
+            self.format_button.setEnabled_(False)
 
         @objc.python_method
         def finish(self, summary):
@@ -408,9 +432,57 @@ def main():
             self.details.setString_(summary.text)
             self.action.setTitle_('Dismiss')
             self.bar.active = False
+            connected = self.app.source_root is not None and self.app.source_root.is_dir()
+            self.eject_button.setEnabled_(connected and not self.app.device_busy)
+            self.format_button.setEnabled_(connected and not self.app.device_busy)
             if summary.title in ('Transfer complete', 'Transfer finished — with notes'):
                 self.bar.fraction = 1
             self.bar.setNeedsDisplay_(True)
+
+        @objc.python_method
+        def show(self):
+            A.NSApp.activateIgnoringOtherApps_(True)
+            self.window.makeKeyAndOrderFront_(None)
+
+    class DeviceWindow(NSObject):
+        def initWithApp_(self, app):
+            self = objc.super(DeviceWindow, self).init()
+            self.app = app
+            self.window = A.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                A.NSMakeRect(0, 0, 540, 245), A.NSWindowStyleMaskTitled | A.NSWindowStyleMaskClosable,
+                A.NSBackingStoreBuffered, False)
+            self.window.setTitle_('NomNom — Device Status')
+            self.window.setLevel_(A.NSFloatingWindowLevel)
+            self.window.setHidesOnDeactivate_(False)
+            self.window.setReleasedWhenClosed_(False)
+            self.window.setDelegate_(self)
+            self.window.center()
+            scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(20, 60, 500, 165))
+            scroll.setHasVerticalScroller_(True)
+            self.text = A.NSTextView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 500, 165))
+            self.text.setEditable_(False)
+            self.text.setSelectable_(True)
+            self.text.setFont_(A.NSFont.systemFontOfSize_(14))
+            scroll.setDocumentView_(self.text)
+            self.window.contentView().addSubview_(scroll)
+            self.button = A.NSButton.alloc().initWithFrame_(A.NSMakeRect(315, 15, 205, 30))
+            self.button.setBezelStyle_(A.NSBezelStyleRounded)
+            self.button.setTarget_(self)
+            self.button.setAction_('dismiss:')
+            self.window.contentView().addSubview_(self.button)
+            return self
+
+        def windowShouldClose_(self, sender):
+            sender.orderOut_(None)
+            return False
+
+        def dismiss_(self, sender):
+            self.window.orderOut_(None)
+
+        @objc.python_method
+        def update(self, title, message, busy):
+            self.text.setString_(title + '\n\n' + message)
+            self.button.setTitle_('Run in the background' if busy else 'Dismiss')
 
         @objc.python_method
         def show(self):
@@ -436,9 +508,13 @@ def main():
             except (ValueError, OSError) as error:
                 self.config = Config()
                 self.load_error = str(error)
-            self.menu = ['Show Transfer Status…', 'Configure NomNom…', 'Import detected card…', 'Choose source folder…', 'Check cards now', 'Cancel transfer', 'Last transfer summary…', None, 'Ready for a nibble']
+            self.menu = ['Show Transfer Status…', 'Configure NomNom…', 'Import detected card…', 'Choose source folder…', 'Check cards now', 'Cancel transfer', 'Last transfer summary…', None, 'Eject…', 'Reformat & Eject…', 'Show Device Status…', None, 'Ready for a nibble']
             self.menu['Cancel transfer'].set_callback(None)
             self.last_summary = None
+            self.device_service = DeviceService(MacOSDeviceAdapter())
+            self.device_busy = False
+            self.device_window = None
+            self.device_message = ('No device actions yet', 'Select Eject or Reformat & Eject from the menu.')
             self.status = None
             self.latest_progress = Progress()
             self.transfer_destination = ''
@@ -549,6 +625,97 @@ def main():
                 self.show_status(None)
             self.status.finish(summary)
 
+        @rumps.clicked('Eject…')
+        def eject_device(self, sender=None):
+            self.request_device(False)
+
+        @rumps.clicked('Reformat & Eject…')
+        def format_device(self, sender=None):
+            self.request_device(True)
+
+        @rumps.clicked('Show Device Status…')
+        def show_device_status(self, sender=None):
+            if self.device_window is None:
+                self.device_window = DeviceWindow.alloc().initWithApp_(self)
+            self.device_window.update(*self.device_message, self.device_busy)
+            self.device_window.show()
+
+        def request_device(self, reformat):
+            if self.busy or self.device_busy:
+                rumps.alert('Device is busy', 'Finish the current transfer or device action first.')
+                return
+            self.device_busy = True
+            self.previous_device_message = self.device_message
+            self.device_message = ('Finding removable devices…', 'Reading disk identity only. No device changes have started.')
+            self.show_device_status()
+            def discover():
+                try:
+                    self.events.put(('device-list', (reformat, self.device_service.adapter.devices())))
+                except Exception as error:
+                    self.events.put(('device-error', str(error)))
+            self.executor.submit(discover)
+
+        def pick_device(self, devices):
+            alert = A.NSAlert.alloc().init()
+            alert.setMessageText_('Choose removable storage')
+            alert.setInformativeText_('Select the physical device to manage. All partitions on that device are included.')
+            picker = A.NSPopUpButton.alloc().initWithFrame_pullsDown_(A.NSMakeRect(0, 0, 470, 30), False)
+            picker.addItemsWithTitles_(['Select a device…'] + [d.label for d in devices])
+            alert.setAccessoryView_(picker)
+            alert.addButtonWithTitle_('Continue')
+            alert.addButtonWithTitle_('Cancel')
+            if alert.runModal() != A.NSAlertFirstButtonReturn or picker.indexOfSelectedItem() == 0:
+                return None
+            return devices[picker.indexOfSelectedItem() - 1]
+
+        def cancel_device_review(self):
+            self.device_busy = False
+            self.device_message = self.previous_device_message
+            if self.device_window:
+                self.device_window.update(*self.device_message, False)
+                self.device_window.window.orderOut_(None)
+
+        def review_device(self, reformat, devices):
+            if not devices:
+                self.cancel_device_review()
+                rumps.alert('No eligible removable device', 'Connect removable storage. Internal, startup, read-only, and ambiguous devices are excluded.')
+                return
+            try:
+                selected = self.pick_device(devices)
+            except Exception as error:
+                self.cancel_device_review()
+                rumps.alert('Device selection unavailable', str(error))
+                return
+            if selected is None:
+                self.cancel_device_review()
+                return
+            protected = (self.config.destination, state_directory())
+            try:
+                selected = self.device_service.review(selected, reformat, protected)
+            except Exception as error:
+                self.cancel_device_review()
+                rumps.alert('Device unavailable', str(error))
+                return
+            message = selected.label + '\n\n'
+            if reformat:
+                message += 'ALL data on this physical device and every partition will be erased.\nNew format: FAT32 • MBR • NOMNOM\n\nErase and safely eject?'
+            else:
+                message += 'Safely eject this physical device and all of its volumes?'
+            if rumps.alert('Reformat & Eject' if reformat else 'Eject device', message,
+                           ok='Erase all data & eject' if reformat else 'Eject', cancel='Cancel') != 1:
+                self.cancel_device_review()
+                return
+            self.device_message = ('Checking selected device…', selected.label)
+            self.show_device_status()
+            if self.status:
+                self.status.eject_button.setEnabled_(False)
+                self.status.format_button.setEnabled_(False)
+            def work():
+                result = self.device_service.execute(selected, reformat, authorized=True, protected=protected,
+                                                     progress=lambda phase: self.events.put(('device-phase', (phase, selected.label))))
+                self.events.put(('device-result', result))
+            self.executor.submit(work)
+
         @rumps.clicked('Import detected card…')
         def import_detected(self, sender):
             if self.busy:
@@ -562,7 +729,7 @@ def main():
                 self.menu['Ready for a nibble'].title = 'Checking for a source card…'
 
         def offer(self, card, detected=False):
-            if self.busy:
+            if self.busy or self.device_busy:
                 return
             if detected:
                 if not self.config.prompt_on_insert:
@@ -594,7 +761,7 @@ def main():
 
         def review_pending(self):
             card = self.pending_card
-            if self.busy or card is None:
+            if self.busy or self.device_busy or card is None:
                 return
             if not card.root.is_dir():
                 rumps.alert('Source unavailable', 'The source was removed. Reinsert the card or choose a source folder.')
@@ -638,7 +805,26 @@ def main():
                 self.status.bar.setNeedsDisplay_(True)
             while not self.events.empty():
                 kind, value = self.events.get_nowait()
-                if kind == 'progress':
+                if kind == 'device-list':
+                    self.review_device(*value)
+                elif kind == 'device-phase':
+                    self.device_message = value
+                    if self.device_window:
+                        self.device_window.update(*value, True)
+                elif kind in ('device-result', 'device-error'):
+                    self.device_busy = False
+                    self.device_message = (value.title, value.message) if kind == 'device-result' else ('Device action failed', value)
+                    if self.device_window:
+                        self.device_window.update(*self.device_message, False)
+                    else:
+                        self.show_device_status()
+                    if kind == 'device-result' and value.ejected and self.source_root is not None and any(self.source_root == Path(m) or Path(m) in self.source_root.parents for m in value.mounts):
+                        self.source_root = None
+                        self.pending_card = None
+                        self.pending_detected = False
+                    if self.status and self.last_summary:
+                        self.status.finish(self.last_summary)
+                elif kind == 'progress':
                     self.latest_progress = value
                     if self.status:
                         self.status.update(value)
@@ -646,7 +832,7 @@ def main():
                     self.scanning = False
                     current = {(c.identity, str(c.root)) for c in value}
                     new = [c for c in value if (c.identity, str(c.root)) not in self.seen]
-                    if not self.busy:
+                    if not self.busy and not self.device_busy:
                         if self.pending_card is not None:
                             if self.pending_detected and (self.pending_card.identity, str(self.pending_card.root)) not in current:
                                 self.pending_card = None
@@ -675,7 +861,7 @@ def main():
         def tick(self, sender):
             self.ensure_access()
             self.process_events()
-            if not self.scanning and not self.busy:
+            if not self.scanning and not self.busy and not self.device_busy:
                 self.scanning = True
                 def scan():
                     try:

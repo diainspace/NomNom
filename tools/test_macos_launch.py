@@ -6,7 +6,7 @@ from pathlib import Path
 
 def main():
     app = Path(__file__).resolve().parents[1] / 'dist' / 'NomNom.app'
-    for flag in ('--smoke-report', '--status-smoke-report'):
+    for flag in ('--smoke-report', '--status-smoke-report', '--device-smoke-report'):
         check_launch(app, flag)
 
 

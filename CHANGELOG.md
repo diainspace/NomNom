@@ -1,5 +1,13 @@
 # Changelog
 
+## Explicit Eject and Reformat & Eject
+
+- Add menu and finished-transfer actions with explicit physical-device selection and destructive confirmation.
+- Create the approved FAT32/MBR `NOMNOM` camera preset, verify its layout, then eject without forced unmounts or automatic retries.
+- Recheck identity and exclude unsafe storage and devices containing the destination or runtime state.
+- Keep device status reopenable and device operations independent of ingestion history; cancellation leaves media unchanged.
+- Add mocked-device regression tests and native macOS menu, confirmation, and status checks.
+
 ## Automatic insertion snacks
 
 - Add a local per-user insertion watcher and LaunchAgent installer for mounted SD cards and other external physical volumes.

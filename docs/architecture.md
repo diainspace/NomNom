@@ -1,5 +1,15 @@
 # NomNom architecture
 
+## Explicit removable-device management
+
+`devices.py` owns immutable device snapshots and the adapter-independent review/authorization workflow. `platforms/macos_devices.py` supplies read-only diskutil discovery and the explicitly authorized erase/eject commands. The macOS UI provides selection, confirmation, background execution, and a retained status window. The ingestion engine and ledger are not called by device management.
+
+Snapshots include the mounted volume UUID, whole-disk identifier, capacity, media name, bus, device-tree path, all partitions, and mounted paths. A fresh snapshot must match before execution. Startup/internal storage, incomplete identities, duplicated volume UUIDs, read-only/nonremovable media, and unsafe partition identities are excluded. Destination/runtime containment uses resolved paths. Device actions and transfers cannot run concurrently within the application.
+
+The initial format command is `diskutil eraseDisk FAT32 NOMNOM MBRFormat /dev/diskN`, with `diskN` supplied only by the validated adapter. Formatting covers the entire physical device. A successful command is followed by verification of physical identity, MBR layout, one FAT32 partition, and the expected volume name/filesystem; only then is normal ejection attempted. Failure or timeout is reported without retry or force. Formatting failure can leave media altered even when the native command does not report success. This feature does not verify secure erasure or camera compatibility.
+
+Metadata rechecks reduce accidental targeting but cannot atomically lock a removable device against physical replacement or operations by another program. Do not swap cards during confirmation or execution. Discovery requires a mounted identifiable volume; fixed external drives and unusual partition layouts may be excluded conservatively. Unit tests inject synthetic diskutil responses; native Cocoa tests use the same fake runner, never physical erase commands.
+
 The macOS application is primary. Platform integrations sit behind adapters; importing the core never imports rumps or Cocoa. No runtime network services are used.
 
 ## Boundaries

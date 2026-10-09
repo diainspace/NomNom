@@ -1,5 +1,15 @@
 # NomNom® v0.2: The Menu Bar Muncher
 
+## Eject and Reformat & Eject
+
+Choose **Eject…** or **Reformat & Eject…** from the NomNom menu, or from a finished transfer window. Select the physical device explicitly: the chooser shows its mounted volume name, capacity, and `/dev/diskN` identifier. Neither action requires a previous transfer or changes the ingestion ledger.
+
+**Reformat & Eject** is a separate, destructive action. Its confirmation explains that **all data and all partitions on the selected physical device will be erased**. The initial camera preset creates FAT32 with an MBR partition scheme and the volume name `NOMNOM`, for SDHC-size devices above 2 GB through 32 GB. Cancel closes the review without changing the card or displaying a transfer-cancelled message. Formatting never happens automatically after an import.
+
+NomNom rechecks device identity before operating, excludes internal/startup, read-only, and ambiguous storage, and blocks devices containing the configured destination or runtime state. Only mounted, identifiable removable devices are offered. After formatting, it checks the resulting filesystem and partition scheme before requesting a normal eject. There are no automatic retries or forced unmounts. Wait for **Safe to remove**; if formatting or ejection fails, leave the card connected and review **Show Device Status…**. Closing that window keeps NomNom running.
+
+To test the feature, restart the rebuilt app, choose **Reformat & Eject…**, select your intended card, and review its identity before confirming **Erase all data & eject**. After successful ejection, reinsert it, check recognition in macOS, then test capture/readback in the camera. Camera compatibility still needs a physical test; this is not secure erasure. Development tests use mocked disk operations and never erase real media.
+
 **NomNom® is a standalone, general-purpose SD-card ingestion and file distribution application.** macOS is its primary target: a native menu bar utility detects mounted removable cards and asks before starting a verified local transfer. The configuration and ingestion engines work independently of the UI. No Raspberry Pi hardware, external server, or cloud service is required.
 
 > NomNom® doesn't decide what's worth keeping. You decide what it eats and where it puts it.
