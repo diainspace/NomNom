@@ -1,5 +1,11 @@
 # Changelog
 
+## Green progress and background controls
+
+- Replace the spinner with a green progress bar driven by actual processed-file totals, with an indeterminate bar before totals are known.
+- Keep the status window floating above ordinary windows and simplify repetitive transfer-phase headings.
+- Replace the dialog’s Cancel transfer button with Run in the background while working and Dismiss afterward; preserve menu-based reopening and cancellation.
+
 ## Review settings before starting
 
 - Destination selection saves the destination without prematurely opening transfer review or saving unrelated edits.

@@ -2,6 +2,7 @@
 import copy
 import queue
 import sys
+from time import monotonic
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -288,6 +289,41 @@ def main():
             self.save_button.setTitle_('Save & review transfer' if self.app.pending_card else 'Save menu')
             self.window.makeKeyAndOrderFront_(None)
 
+    class TransferBar(A.NSView):
+        def initWithFrame_(self, frame):
+            self = objc.super(TransferBar, self).initWithFrame_(frame)
+            if self is not None:
+                self.fraction = None
+                self.active = False
+                self.setAccessibilityElement_(True)
+                self.setAccessibilityRole_(A.NSAccessibilityProgressIndicatorRole)
+                self.setAccessibilityLabel_('Transfer progress')
+            return self
+
+        @objc.python_method
+        def update(self, progress, active):
+            self.active = active
+            self.fraction = (min(progress.files_done, progress.files_total) / progress.files_total
+                             if progress.files_total else None)
+            self.setAccessibilityValue_(str(progress.files_done) + ' of ' + str(progress.files_total) + ' files processed' if progress.files_total is not None else 'Preparing — total not known yet')
+            self.setNeedsDisplay_(True)
+
+        def drawRect_(self, dirty):
+            bounds = self.bounds()
+            A.NSColor.controlBackgroundColor().setFill()
+            A.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(bounds, 5, 5).fill()
+            width = bounds.size.width
+            if self.fraction is not None:
+                fill = A.NSMakeRect(0, 0, width * self.fraction, bounds.size.height)
+            elif self.active:
+                # An indeterminate moving bar, never a guessed completion percentage.
+                segment = width * 0.2
+                fill = A.NSMakeRect((width - segment) * ((monotonic() % 1.5) / 1.5), 0, segment, bounds.size.height)
+            else:
+                return
+            A.NSColor.systemGreenColor().setFill()
+            A.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(fill, 5, 5).fill()
+
     class TransferWindow(NSObject):
         def initWithApp_(self, app):
             self = objc.super(TransferWindow, self).init()
@@ -298,39 +334,39 @@ def main():
                 A.NSMakeRect(0, 0, 650, 420), A.NSWindowStyleMaskTitled | A.NSWindowStyleMaskClosable | A.NSWindowStyleMaskMiniaturizable | A.NSWindowStyleMaskResizable,
                 A.NSBackingStoreBuffered, False)
             self.window.setTitle_('NomNom — Transfer Status')
+            self.window.setLevel_(A.NSFloatingWindowLevel)
+            self.window.setHidesOnDeactivate_(False)
             self.window.setReleasedWhenClosed_(False)
             self.window.setDelegate_(self)
             self.window.center()
             view = self.window.contentView()
-            self.phase = A.NSTextField.alloc().initWithFrame_(A.NSMakeRect(65, 365, 560, 30))
+            self.phase = A.NSTextField.alloc().initWithFrame_(A.NSMakeRect(20, 365, 610, 30))
             self.phase.setEditable_(False)
             self.phase.setBezeled_(False)
             self.phase.setDrawsBackground_(False)
             self.phase.setFont_(A.NSFont.boldSystemFontOfSize_(18))
             self.phase.setStringValue_('Ready for a transfer')
             view.addSubview_(self.phase)
-            self.spinner = A.NSProgressIndicator.alloc().initWithFrame_(A.NSMakeRect(20, 366, 28, 28))
-            self.spinner.setStyle_(A.NSProgressIndicatorStyleSpinning)
-            self.spinner.setIndeterminate_(True)
-            self.spinner.setDisplayedWhenStopped_(False)
-            view.addSubview_(self.spinner)
-            scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(20, 65, 610, 285))
+            self.bar = TransferBar.alloc().initWithFrame_(A.NSMakeRect(20, 340, 610, 14))
+            self.bar.setAutoresizingMask_(A.NSViewWidthSizable)
+            view.addSubview_(self.bar)
+            scroll = A.NSScrollView.alloc().initWithFrame_(A.NSMakeRect(20, 65, 610, 260))
             scroll.setHasVerticalScroller_(True)
             scroll.setAutoresizingMask_(A.NSViewWidthSizable | A.NSViewHeightSizable)
-            self.details = A.NSTextView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 610, 285))
+            self.details = A.NSTextView.alloc().initWithFrame_(A.NSMakeRect(0, 0, 610, 260))
             self.details.setEditable_(False)
             self.details.setSelectable_(True)
             self.details.setFont_(A.NSFont.userFixedPitchFontOfSize_(13))
             self.details.setString_('Start a transfer from the NomNom menu. Closing this window keeps NomNom running.')
             scroll.setDocumentView_(self.details)
             view.addSubview_(scroll)
-            self.cancel = A.NSButton.alloc().initWithFrame_(A.NSMakeRect(455, 18, 175, 30))
-            self.cancel.setTitle_('Cancel transfer')
-            self.cancel.setBezelStyle_(A.NSBezelStyleRounded)
-            self.cancel.setTarget_(self)
-            self.cancel.setAction_('cancelTransfer:')
-            self.cancel.setEnabled_(False)
-            view.addSubview_(self.cancel)
+            self.action = A.NSButton.alloc().initWithFrame_(A.NSMakeRect(455, 18, 175, 30))
+            self.action.setTitle_('Dismiss')
+            self.action.setBezelStyle_(A.NSBezelStyleRounded)
+            self.action.setTarget_(self)
+            self.action.setAction_('hideStatus:')
+            self.action.setEnabled_(True)
+            view.addSubview_(self.action)
             return self
 
         def windowShouldClose_(self, sender):
@@ -339,25 +375,29 @@ def main():
             sender.orderOut_(None)
             return False
 
-        def cancelTransfer_(self, sender):
-            self.app.cancel_transfer(sender)
+        def hideStatus_(self, sender):
+            self.window.orderOut_(None)
 
         @objc.python_method
         def update(self, progress):
-            self.phase.setStringValue_(progress.phase)
-            self.details.setString_(progress.text() + '\n\nSource (read only): ' + str(self.app.source_root or '—') + '\nDestination: ' + self.app.transfer_destination)
-            self.cancel.setEnabled_(self.app.busy)
-            if self.app.busy:
-                self.spinner.startAnimation_(None)
-            else:
-                self.spinner.stopAnimation_(None)
+            phase = progress.phase
+            if phase.startswith(('Fingerprinting', 'Copying', 'Verifying', 'Recording')):
+                phase = 'Transferring files'
+            self.phase.setStringValue_(phase)
+            counts = progress.text().split('\n', 1)[1]
+            self.details.setString_(counts + '\n\nSource (read only): ' + str(self.app.source_root or '—') + '\nDestination: ' + self.app.transfer_destination)
+            self.action.setTitle_('Run in the background' if self.app.busy else 'Dismiss')
+            self.bar.update(progress, self.app.busy)
 
         @objc.python_method
         def finish(self, summary):
             self.phase.setStringValue_(summary.title)
             self.details.setString_(summary.text)
-            self.cancel.setEnabled_(False)
-            self.spinner.stopAnimation_(None)
+            self.action.setTitle_('Dismiss')
+            self.bar.active = False
+            if summary.title in ('Transfer complete', 'Transfer finished — with notes'):
+                self.bar.fraction = 1
+            self.bar.setNeedsDisplay_(True)
 
         @objc.python_method
         def show(self):
@@ -489,7 +529,10 @@ def main():
             except Exception:
                 # Notification Center may be disabled or unavailable for a CLI-launched app.
                 pass
-            self.show_status(None)
+            # Respect Run in the background: completion updates the retained
+            # summary without stealing focus or reopening a deliberately hidden window.
+            if self.status is None:
+                self.show_status(None)
             self.status.finish(summary)
 
         @rumps.clicked('Import detected card…')
@@ -557,6 +600,8 @@ def main():
             self.executor.submit(work)
 
         def process_events(self, sender=None):
+            if self.status and self.status.bar.active and self.status.bar.fraction is None:
+                self.status.bar.setNeedsDisplay_(True)
             while not self.events.empty():
                 kind, value = self.events.get_nowait()
                 if kind == 'progress':

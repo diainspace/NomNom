@@ -76,7 +76,8 @@ def check_scan():
         assert app.status.window.isVisible()
         assert str(app.status.phase.stringValue()) == 'Scanning source'
         assert 'not known yet' in str(app.status.details.string())
-        app.status.window.performClose_(None)
+        assert app.status.bar.fraction is None and app.status.bar.active
+        app.status.action.performClick_(None)
         assert not app.status.window.isVisible()
         assert app.busy and not app.cancel_event.is_set()
         assert app._nsapp.applicationShouldTerminateAfterLastWindowClosed_(AppKit.NSApp) is False
@@ -102,6 +103,8 @@ def check_copy():
         assert app.latest_progress.files_total == 2
         assert app.latest_progress.bytes_transferred > 0
         assert 'Bytes transferred:' in details and ' / 2' in details and '%' not in details
+        assert str(app.status.phase.stringValue()) == 'Transferring files'
+        assert app.status.bar.fraction == app.latest_progress.files_done / 2
         app.status.window.performClose_(None)
         assert not app.status.window.isVisible()
         AppHelper.callLater(1.0, reopen_after_hidden_copy)
@@ -132,6 +135,9 @@ def reopen_after_hidden_scan():
 def reopen_after_hidden_copy():
     try:
         reopen_from_menu()
+        assert app.status.action.title() == 'Run in the background'
+        app.status.action.performClick_(None)
+        assert not app.status.window.isVisible() and not app.cancel_event.is_set()
         copy_gate.set()
         AppHelper.callLater(0.1, check_complete)
     except Exception as error:
@@ -146,6 +152,13 @@ def check_complete():
             AppHelper.callLater(0.1, check_complete)
             return
         assert app.last_summary.title == 'Transfer complete'
+        assert not app.status.window.isVisible()  # Background completion stays in background.
+        app.show_status(None)
+        assert app.status.action.title() == 'Dismiss'
+        assert app.status.bar.fraction == 1 and not app.status.bar.active
+        app.status.action.performClick_(None)
+        assert not app.status.window.isVisible() and AppKit.NSApp.isRunning()
+        app.show_status(None)
         assert 'Copied: 2' in str(app.status.details.string())
         assert app.latest_progress.files_done == 2
         assert app.latest_progress.bytes_transferred == 3 * 1024 * 1024
@@ -181,7 +194,7 @@ def check_failure():
             return
         assert app.last_summary.title == 'Transfer finished — with notes'
         assert 'Failed entries/issues: 1' in str(app.status.details.string())
-        assert not app.status.cancel.isEnabled()
+        assert app.status.action.isEnabled() and app.status.action.title() == 'Dismiss'
         app.present_summary(summarize(RunResult(cancelled=True, copied=1, verified=1, not_processed=1, destination=str(root / 'out'))))
         assert str(app.status.phase.stringValue()) == 'Transfer cancelled'
         app.status.window.performClose_(None)
@@ -222,7 +235,9 @@ def start():
         # These assertions happen synchronously before any queued progress is consumed.
         assert app.busy and app.status.window.isVisible()
         assert str(app.status.phase.stringValue()) == 'Preparing transfer'
-        assert app.status.cancel.isEnabled()
+        assert app.status.action.isEnabled() and app.status.action.title() == 'Run in the background'
+        assert app.status.window.level() == AppKit.NSFloatingWindowLevel
+        assert not app.status.window.hidesOnDeactivate()
         AppHelper.callLater(0.15, check_scan)
     except Exception as error:
         finish(error)
